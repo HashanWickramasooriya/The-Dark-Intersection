@@ -1,0 +1,26 @@
+# Render Blueprint for the standalone multiplayer WebSocket server only.
+# The Next.js frontend is NOT deployed by this file — it stays on Vercel.
+#
+# Deploy: connect this repo in the Render dashboard as a Blueprint, or
+# create the Web Service manually using the same settings below.
+services:
+  - type: web
+    name: dark-intersection-multiplayer
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: corepack enable && pnpm install --frozen-lockfile
+    startCommand: pnpm run start:server
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      # Comma-separated list of browser Origins allowed to open a WebSocket
+      # connection. Update this if the Vercel production domain changes, or
+      # to add preview-deployment domains.
+      - key: ALLOWED_ORIGINS
+        value: https://the-dark-intersection-multiplayer.vercel.app,http://localhost:3000
+    # No healthCheckPath override needed — Render's default check hits the
+    # server's port directly, and the server now responds 200 to any plain
+    # GET (see server/index.ts's httpServer handler) so a path-based check
+    # would also work if ever added explicitly.

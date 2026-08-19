@@ -2,10 +2,12 @@
  * Standalone multiplayer WebSocket server for අඳුරු මංසන්ධිය.
  *
  * Runs as a separate Node process from the Next.js app (see package.json's
- * "dev:server"/"dev:all" scripts) because Vercel's serverless Next.js
- * runtime cannot hold persistent WebSocket connections. Production hosting
- * of this process is a separate concern, out of scope for local dev.
+ * "dev:server"/"dev:all" scripts for local dev, "start:server" for
+ * production) because Vercel's serverless Next.js runtime cannot hold
+ * persistent WebSocket connections. Deploy this process to an always-on
+ * host (Render, Railway, a VM, ...) — see render.yaml at the repo root.
  */
+import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "crypto";
 import { RoomManager } from "./RoomManager";
@@ -15,6 +17,29 @@ import type { ClientMessage, ServerMessage } from "./protocol";
 import { log } from "./logger";
 
 const PORT = Number(process.env.PORT) || 8787;
+// Render/Railway route traffic to whatever interface the process listens
+// on internally, but binding explicitly to all interfaces (rather than the
+// "localhost"-only default some hosts' containers use) is what actually
+// makes the process reachable from their edge/proxy layer.
+const HOST = process.env.HOST || "0.0.0.0";
+
+// Browsers send an Origin header on WebSocket handshakes; non-browser
+// clients (health checks, local test scripts, server-to-server) send none
+// and are always allowed. Configurable via ALLOWED_ORIGINS (comma-separated)
+// so the production Vercel domain can be set without touching source.
+const ALLOWED_ORIGINS = (
+  process.env.ALLOWED_ORIGINS ??
+  "http://localhost:3000,https://the-dark-intersection-multiplayer.vercel.app"
+)
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function isOriginAllowed(origin: string | undefined): boolean {
+  if (!origin) return true;
+  return ALLOWED_ORIGINS.includes(origin);
+}
+
 const manager = new RoomManager();
 
 interface ConnState {
@@ -169,8 +194,27 @@ function handleMessage(ws: WebSocket, state: ConnState, raw: string) {
   }
 }
 
-const wss = new WebSocketServer({ port: PORT });
-log.info(`multiplayer ws server listening on :${PORT}`);
+// A plain http.Server (rather than letting `ws` open its own internal one
+// via the `port` option) so a normal GET — Render's health check, an
+// uptime monitor, a curl smoke test — gets a real 200 instead of the bare
+// 426 Upgrade Required `ws` returns by default for non-WebSocket requests.
+const httpServer = createServer((req, res) => {
+  res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+  res.end("dark-intersection multiplayer server: ok");
+});
+
+const wss = new WebSocketServer({
+  server: httpServer,
+  verifyClient: (info, cb) => {
+    const allowed = isOriginAllowed(info.origin);
+    if (!allowed) log.warn(`rejected connection from disallowed origin: ${info.origin}`);
+    cb(allowed);
+  },
+});
+
+httpServer.listen(PORT, HOST, () => {
+  log.info(`multiplayer ws server listening on ${HOST}:${PORT} (allowed origins: ${ALLOWED_ORIGINS.join(", ")})`);
+});
 
 wss.on("connection", (ws) => {
   const state: ConnState = { room: null, playerId: null };
