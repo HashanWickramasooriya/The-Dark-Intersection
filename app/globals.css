@@ -1,0 +1,173 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-elite: var(--font-elite), "Courier New", monospace;
+  --font-sinhala: var(--font-sinhala), "Noto Sans Sinhala", sans-serif;
+}
+
+html,
+body {
+  height: 100%;
+  background: #000;
+}
+
+.font-elite {
+  font-family: var(--font-elite), "Courier New", monospace;
+}
+
+/* Sinhala text needs a Unicode-complete font — SpecialElite has no
+   Sinhala glyphs, so this class overrides it wherever Sinhala copy is
+   rendered, keeping the typewriter font only where English/keys remain. */
+.font-sinhala {
+  font-family: var(--font-sinhala), "Noto Sans Sinhala", sans-serif;
+}
+
+/* ------------------------------------------------------------------ */
+/* menu atmosphere                                                      */
+/* ------------------------------------------------------------------ */
+
+.crt-grain {
+  background-image: repeating-radial-gradient(
+    circle at 17% 32%,
+    rgba(255, 255, 255, 0.9) 0,
+    rgba(255, 255, 255, 0) 1.5px
+  ),
+  repeating-radial-gradient(
+    circle at 81% 67%,
+    rgba(255, 255, 255, 0.8) 0,
+    rgba(255, 255, 255, 0) 1.2px
+  );
+  background-size: 3px 3px, 5px 5px;
+  animation: grain-shift 0.45s steps(3) infinite;
+}
+
+@keyframes grain-shift {
+  0% { transform: translate(0, 0); }
+  33% { transform: translate(-2px, 1px); }
+  66% { transform: translate(1px, -2px); }
+  100% { transform: translate(0, 0); }
+}
+
+.scanlines {
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 2px,
+    rgba(0, 0, 0, 0.9) 3px
+  );
+}
+
+/* fluorescent tube struggling to stay alive */
+.flicker {
+  animation: flicker 6.5s infinite;
+}
+.flicker-slow {
+  animation: flicker 11s infinite;
+}
+
+@keyframes flicker {
+  0%, 16%, 21%, 64%, 68%, 100% { opacity: 1; }
+  17%, 20% { opacity: 0.35; }
+  18.5% { opacity: 0.85; }
+  65% { opacity: 0.4; }
+  66.5% { opacity: 0.9; }
+  67% { opacity: 0.3; }
+}
+
+/* ------------------------------------------------------------------ */
+/* VHS menu — camcorder tape aesthetic                                  */
+/* ------------------------------------------------------------------ */
+
+/* chromatic aberration + occasional tape jitter on the title */
+.vhs-title {
+  text-shadow:
+    -2.5px 0 0 rgba(255, 70, 55, 0.5),
+    2.5px 0 0 rgba(80, 225, 255, 0.38),
+    0 0 30px rgba(255, 220, 140, 0.25);
+  animation:
+    flicker 6.5s infinite,
+    vhs-jitter 3.8s steps(1) infinite;
+}
+
+@keyframes vhs-jitter {
+  0%, 93%, 100% { transform: translate(0, 0) skewX(0deg); }
+  94% { transform: translate(-2px, 1px) skewX(-1.4deg); }
+  95.5% { transform: translate(1.5px, -1px) skewX(0.8deg); }
+  97% { transform: translate(-1px, 0) skewX(0deg); }
+}
+
+.rec-dot {
+  animation: rec-blink 1.6s steps(1) infinite;
+}
+
+@keyframes rec-blink {
+  0%, 55% { opacity: 1; }
+  56%, 100% { opacity: 0.12; }
+}
+
+/* horizontal tracking distortion band rolling down the screen */
+.tracking-band {
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(255, 255, 255, 0.045) 30%,
+    rgba(255, 255, 255, 0.085) 50%,
+    rgba(255, 255, 255, 0.045) 70%,
+    transparent
+  );
+  animation: tracking-roll 9s linear infinite;
+}
+
+@keyframes tracking-roll {
+  0% { transform: translateY(-130px); opacity: 0; }
+  6% { opacity: 1; }
+  60% { transform: translateY(100vh); opacity: 1; }
+  61%, 100% { transform: translateY(100vh); opacity: 0; }
+}
+
+.glitch-text {
+  animation: glitch-skew 4s infinite;
+}
+
+@keyframes glitch-skew {
+  0%, 88%, 100% { transform: skewX(0deg); }
+  89% { transform: skewX(3deg) translateX(2px); }
+  90% { transform: skewX(-2.5deg); }
+  91% { transform: skewX(0.8deg) translateX(-2px); }
+  92% { transform: skewX(0deg); }
+}
+
+/* collected page readout */
+.page-pop {
+  animation: page-pop 6.5s ease forwards;
+}
+
+@keyframes page-pop {
+  0% { opacity: 0; transform: translate(-50%, 10px) scale(0.96); }
+  6% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  85% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -8px); }
+}
+
+/* centered objective announcement — fades in, holds, fades out */
+.objective-pop {
+  animation: objective-pop 5.2s ease-out forwards;
+}
+
+@keyframes objective-pop {
+  0% { opacity: 0; transform: translate(-50%, 10px); }
+  7% { opacity: 1; transform: translate(-50%, 0); }
+  84% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -6px); }
+}
+
+/* "rotate your device" phone glyph */
+.phone-spin {
+  animation: phone-spin 2.2s ease-in-out infinite;
+}
+
+@keyframes phone-spin {
+  0%, 25% { transform: rotate(0deg); }
+  55%, 85% { transform: rotate(90deg); }
+  100% { transform: rotate(90deg); }
+}
