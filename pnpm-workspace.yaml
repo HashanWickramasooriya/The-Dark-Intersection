@@ -1,3 +1,11 @@
+# Avoids `pnpm run <script>` re-exec'ing `pnpm install` as a synchronous
+# pre-flight subprocess on every invocation — that subprocess has been
+# observed to fail outright with no useful error in some sandboxed/CI
+# shells (see the exit-code-1 "runDepsStatusCheck" failure this fixes).
+# `pnpm install --frozen-lockfile` already runs as its own explicit step
+# before any script in CI/deploy hosts, so this isn't skipping verification,
+# just not redundantly repeating it inside every script run.
+verifyDepsBeforeRun: false
 allowBuilds:
   esbuild: set this to true or false
   sharp: set this to true or false
