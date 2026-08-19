@@ -1,13 +1,34 @@
 import * as THREE from "three";
 import { CELL, Level, PILLAR } from "./level";
 import { Player } from "./player";
-import { Entity } from "./entity";
+import { Entity, EntityContext, EntityState, ENTITY_KILL_DIST } from "./entity";
 import { GameAudio } from "./audio";
 import { GameFX } from "./fx";
 import { Items, TOTAL_PAGES } from "./items";
 import { randRange } from "./rng";
+import { RemotePlayer } from "./RemotePlayer";
+import { RemoteMonster } from "./RemoteMonster";
+import type { RoomClient } from "../net/RoomClient";
+import type { ServerMessage, Vec3 } from "../net/protocol";
 
 export type GameState = "idle" | "playing" | "paused" | "dying" | "dead" | "won";
+
+/** Another room member's spawn assignment, known up front from `game_start`. */
+export interface NetPlayerInfo {
+  id: string;
+  name: string;
+  spawn: Vec3;
+}
+
+/** Present only for multiplayer runs — absent, Engine behaves exactly as single-player. */
+export interface EngineNetContext {
+  client: RoomClient;
+  seed: number;
+  localPlayerId: string;
+  isHost: boolean;
+  localSpawn: Vec3;
+  remotePlayers: NetPlayerInfo[];
+}
 
 export interface HudState {
   pages: number;
@@ -127,12 +148,24 @@ export class Engine {
   private disposed = false;
   private detachInput: (() => void) | null = null;
 
+  /** multiplayer — all no-ops / unused when `net` is undefined (single-player) */
+  private remotePlayers = new Map<string, RemotePlayer>();
+  private remoteMonster: RemoteMonster | null = null;
+  private isMonsterAuthority = true;
+  private netUnsubscribe: (() => void) | null = null;
+  private netTransformSeq = 0;
+  private netMonsterSeq = 0;
+  private netTransformTimer = 0;
+  private netMonsterTimer = 0;
+  private lastMonsterSample: { pos: Vec3; yaw: number; state: string } | null = null;
+
   constructor(
     private container: HTMLElement,
     private canvas: HTMLCanvasElement,
     private callbacks: EngineCallbacks,
-    seed = (Date.now() ^ (Math.random() * 0xffffff)) >>> 0,
+    private net?: EngineNetContext,
   ) {
+    const seed = net?.seed ?? (Date.now() ^ (Math.random() * 0xffffff)) >>> 0;
     const width = container.clientWidth;
     const height = container.clientHeight;
 
@@ -164,6 +197,7 @@ export class Engine {
     this.buildMinimapGeometry();
 
     this.player = new Player(this.level, width / height);
+    if (this.net) this.player.pos.set(this.net.localSpawn.x, this.net.localSpawn.y, this.net.localSpawn.z);
     this.player.addTo(this.scene);
     this.player.onStep = (sprinting) => this.audio.playerStep(sprinting);
 
@@ -171,9 +205,27 @@ export class Engine {
     this.entity.addTo(this.scene);
     this.entity.onScreech = () => this.onScreech();
     this.entity.onStep = () => this.onEntityStep();
-    this.entity.onKill = () => this.beginDeath();
+    // Single-player: the entity's own dist check is against the one local
+    // player, so this is unambiguous. Multiplayer: onKill fires whenever
+    // ANY resolved target (possibly a remote player) is caught, which this
+    // callback can't disambiguate — so death there is instead detected
+    // independently by every client (see loop()'s "self-proximity" check).
+    this.entity.onKill = () => { if (!this.net) this.beginDeath(); };
 
     this.items = new Items(this.level, seed, this.scene);
+
+    if (this.net) {
+      this.isMonsterAuthority = this.net.isHost;
+      if (!this.isMonsterAuthority) this.remoteMonster = new RemoteMonster(this.entity);
+      for (const rp of this.net.remotePlayers) {
+        if (rp.id === this.net.localPlayerId) continue;
+        const remote = new RemotePlayer(rp.name);
+        remote.addTo(this.scene);
+        remote.setTarget(rp.spawn, 0, true, true, false);
+        this.remotePlayers.set(rp.id, remote);
+      }
+      this.netUnsubscribe = this.net.client.on((msg) => this.handleNetMessage(msg));
+    }
 
     for (let i = 0; i < POOL_SIZE; i++) {
       const l = new THREE.PointLight(0xffeebb, 0, 13, 1.8);
@@ -495,12 +547,18 @@ export class Engine {
     if (!hit) return;
 
     if (hit.type === "page") {
-      const lines = this.items.collectPage(hit.index);
-      this.audio.pageStinger();
-      this.callbacks.onPageText(lines);
-      this.fearSpike = Math.min(1, this.fearSpike + 0.22);
-      if (this.items.collected === 1) this.entity.activate();
-      this.pushHud(true);
+      if (this.net) {
+        // Server-validated: applied only once page_collected broadcasts back
+        // (see handleNetMessage), so it can't be double-collected across clients.
+        this.net.client.send({ type: "page_collect_request", index: hit.index });
+      } else {
+        const lines = this.items.collectPage(hit.index);
+        this.audio.pageStinger();
+        this.callbacks.onPageText(lines);
+        this.fearSpike = Math.min(1, this.fearSpike + 0.22);
+        if (this.items.collected === 1) this.entity.activate();
+        this.pushHud(true);
+      }
     } else if (hit.type === "water") {
       this.items.drinkWater(hit.index);
       this.player.restoreStamina();
@@ -510,12 +568,170 @@ export class Engine {
       this.audio.drink();
       this.toast("ශක්තිය යථා තත්ත්වයට පත් විය — හදවත සන්සුන් වෙයි");
       this.pushHud(true);
-    } else if (hit.type === "door" && this.items.allCollected && !this.items.exitOpen) {
+    } else if (hit.type === "door" && this.items.allCollected && !this.items.exitOpen && !this.net) {
+      // Multiplayer: the door opens for every player the instant the server
+      // broadcasts exit_unlocked (handleNetMessage), not on individual
+      // interaction — so everyone sees it unlock together, per spec.
       this.items.openExit();
       this.audio.zap();
       this.fearSpike = Math.min(1, this.fearSpike + 0.15);
       this.pushHud(true);
     }
+  }
+
+  /* ------------------------------- net ------------------------------- */
+
+  private handleNetMessage = (msg: ServerMessage) => {
+    if (!this.net) return;
+    switch (msg.type) {
+      case "player_joined": {
+        if (msg.player.id === this.net.localPlayerId || this.remotePlayers.has(msg.player.id)) break;
+        const remote = new RemotePlayer(msg.player.name);
+        remote.addTo(this.scene);
+        this.remotePlayers.set(msg.player.id, remote);
+        break;
+      }
+      case "player_left": {
+        const rp = this.remotePlayers.get(msg.playerId);
+        if (rp) {
+          rp.removeFrom(this.scene);
+          rp.dispose();
+          this.remotePlayers.delete(msg.playerId);
+        }
+        break;
+      }
+      case "player_transform": {
+        if (msg.playerId === this.net.localPlayerId) break;
+        let rp = this.remotePlayers.get(msg.playerId);
+        if (!rp) {
+          rp = new RemotePlayer(msg.playerId);
+          rp.addTo(this.scene);
+          this.remotePlayers.set(msg.playerId, rp);
+        }
+        rp.setTarget(msg.pos, msg.yaw, msg.alive, msg.flashlightOn, msg.sneaking);
+        break;
+      }
+      case "player_died": {
+        if (msg.playerId !== this.net.localPlayerId) this.toast("සගයෙක් ග්‍රහණය විය");
+        break;
+      }
+      case "page_collected": {
+        const already = this.items.pages[msg.index]?.collected;
+        if (already) break;
+        const lines = this.items.collectPage(msg.index);
+        if (msg.by === this.net.localPlayerId) {
+          this.audio.pageStinger();
+          this.callbacks.onPageText(lines);
+        }
+        this.fearSpike = Math.min(1, this.fearSpike + 0.12);
+        if (this.items.collected === 1 && this.isMonsterAuthority) this.entity.activate();
+        this.pushHud(true);
+        break;
+      }
+      case "exit_unlocked": {
+        if (!this.items.exitOpen) {
+          this.items.openExit();
+          this.audio.zap();
+          this.pushHud(true);
+        }
+        break;
+      }
+      case "monster_transform": {
+        this.lastMonsterSample = { pos: msg.pos, yaw: msg.yaw, state: msg.state };
+        if (!this.isMonsterAuthority) this.remoteMonster?.setTarget(msg.pos, msg.yaw, msg.state);
+        break;
+      }
+      case "monster_authority_changed": {
+        if (msg.playerId === this.net.localPlayerId) {
+          this.isMonsterAuthority = true;
+          this.remoteMonster = null;
+          // Seed from the last known sample rather than snapping to a fresh
+          // dormant entity — avoids a jarring teleport on host handover.
+          if (this.lastMonsterSample) {
+            this.entity.pos.set(this.lastMonsterSample.pos.x, this.lastMonsterSample.pos.y, this.lastMonsterSample.pos.z);
+            this.entity.root.position.copy(this.entity.pos);
+            this.entity.root.rotation.y = this.lastMonsterSample.yaw;
+            this.entity.state = this.lastMonsterSample.state as EntityState;
+            this.entity.root.visible = this.entity.state !== "dormant";
+          }
+        } else {
+          this.isMonsterAuthority = false;
+          this.remoteMonster = new RemoteMonster(this.entity);
+        }
+        break;
+      }
+    }
+  };
+
+  /** Nearest live tracked player (local or remote) — what the host's entity AI targets. */
+  private resolveEntityContext(camDir: THREE.Vector3, t: number): EntityContext {
+    const local: EntityContext = {
+      playerPos: this.player.pos,
+      playerHead: this.player.camera.position,
+      camDir,
+      playerSpeed: this.player.speed,
+      playerSprinting: this.player.sprinting,
+      playerSneaking: this.player.sneaking,
+      flashlightOn: this.player.flashlightOn,
+      time: t,
+    };
+    if (!this.net || this.remotePlayers.size === 0) return local;
+
+    let best = local;
+    let bestDist = this.entity.pos.distanceTo(this.player.pos);
+    for (const rp of this.remotePlayers.values()) {
+      if (!rp.alive) continue;
+      const d = this.entity.pos.distanceTo(rp.root.position);
+      if (d < bestDist) {
+        bestDist = d;
+        // Remote camera direction isn't known — approximate with the local
+        // player's, which only softens the "am I being watched" freeze cue
+        // for remote targets, not the core distance-based chase/kill logic.
+        best = {
+          playerPos: rp.root.position,
+          playerHead: rp.root.position,
+          camDir,
+          playerSpeed: 0,
+          playerSprinting: false,
+          playerSneaking: rp.sneaking,
+          flashlightOn: rp.flashlightOn,
+          time: t,
+        };
+      }
+    }
+    return best;
+  }
+
+  private broadcastLocalTransform(dt: number) {
+    if (!this.net) return;
+    this.netTransformTimer -= dt;
+    if (this.netTransformTimer > 0) return;
+    this.netTransformTimer = 1 / 15;
+    this.net.client.send({
+      type: "transform",
+      pos: { x: this.player.pos.x, y: this.player.pos.y, z: this.player.pos.z },
+      yaw: this.player.yaw,
+      pitch: this.player.pitch,
+      sprinting: this.player.sprinting,
+      sneaking: this.player.sneaking,
+      flashlightOn: this.player.flashlightOn,
+      alive: this.state === "playing",
+      seq: this.netTransformSeq++,
+    });
+  }
+
+  private broadcastMonsterTransform(dt: number) {
+    if (!this.net || !this.isMonsterAuthority) return;
+    this.netMonsterTimer -= dt;
+    if (this.netMonsterTimer > 0) return;
+    this.netMonsterTimer = 1 / 12;
+    this.net.client.send({
+      type: "monster_transform",
+      pos: { x: this.entity.pos.x, y: this.entity.pos.y, z: this.entity.pos.z },
+      yaw: this.entity.root.rotation.y,
+      state: this.entity.state,
+      seq: this.netMonsterSeq++,
+    });
   }
 
   private onScreech() {
@@ -571,24 +787,34 @@ export class Engine {
 
       this.player.update(dt, t);
 
-      // Auto-wake the entity even if the player stalls.
-      if (this.entity.state === "dormant" && t - this.startedAt > 45) {
+      // Auto-wake the entity even if the player stalls. In multiplayer only
+      // the monster's current authority (host, or whoever it migrated to)
+      // decides this — everyone else just observes via monster_transform.
+      if (this.isMonsterAuthority && this.entity.state === "dormant" && t - this.startedAt > 45) {
         this.entity.activate();
       }
 
       const camDir = this.player.camera.getWorldDirection(this.vCamDir);
-      if (!this.cheats.freeze) {
-        this.entity.update(dt, {
-          playerPos: this.player.pos,
-          playerHead: this.player.camera.position,
-          camDir,
-          playerSpeed: this.player.speed,
-          playerSprinting: this.player.sprinting,
-          playerSneaking: this.player.sneaking,
-          flashlightOn: this.player.flashlightOn,
-          time: t,
-        });
+      if (this.isMonsterAuthority) {
+        if (!this.cheats.freeze) {
+          this.entity.update(dt, this.resolveEntityContext(camDir, t));
+        }
+        this.broadcastMonsterTransform(dt);
+      } else {
+        this.remoteMonster?.update(dt);
       }
+
+      // Multiplayer: kill detection is self-checked by every client against
+      // the (possibly network-interpolated) entity position, rather than
+      // relying on entity.ts's single-target onKill callback — see its
+      // wiring in the constructor for why.
+      if (this.net && this.entity.state !== "dormant" &&
+          this.entity.pos.distanceTo(this.player.pos) < ENTITY_KILL_DIST) {
+        this.beginDeath();
+      }
+
+      for (const rp of this.remotePlayers.values()) rp.update(dt);
+      this.broadcastLocalTransform(dt);
 
       this.items.update(dt, t);
       this.updateInteractionPrompt(camDir);
@@ -607,6 +833,7 @@ export class Engine {
       }
     } else if (this.state === "dying") {
       this.updateDeath(dt);
+      this.broadcastLocalTransform(dt); // carries alive:false to the room promptly
     }
 
     this.updateFixtures(t, dt);
@@ -934,6 +1161,8 @@ export class Engine {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     if (this.pendingLock !== null) clearTimeout(this.pendingLock);
+    this.netUnsubscribe?.();
+    this.remotePlayers.clear();
     this.detachInput?.();
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
     this.audio.dispose();

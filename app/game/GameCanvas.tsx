@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Engine, EngineCallbacks } from "./engine/Engine";
+import { Engine, EngineCallbacks, EngineNetContext } from "./engine/Engine";
 
 interface Props {
   callbacksRef: React.RefObject<EngineCallbacks>;
   onReady: (engine: Engine) => void;
+  /** present only for multiplayer runs — single-player passes nothing */
+  net?: EngineNetContext;
 }
 
-export default function GameCanvas({ callbacksRef, onReady }: Props) {
+export default function GameCanvas({ callbacksRef, onReady, net }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -27,7 +29,7 @@ export default function GameCanvas({ callbacksRef, onReady }: Props) {
         onPageText: (l) => callbacksRef.current?.onPageText(l),
         onStats: (s) => callbacksRef.current?.onStats(s),
         onToast: (m) => callbacksRef.current?.onToast(m),
-      });
+      }, net);
       if (process.env.NODE_ENV !== "production") {
         (window as unknown as Record<string, unknown>).__backrooms = engine;
       }

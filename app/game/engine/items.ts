@@ -174,6 +174,7 @@ export class Items {
 
   collectPage(index: number): string[] {
     const p = this.pages[index];
+    if (p.collected) return []; // idempotency guard — needed once collection can arrive via a network broadcast
     p.collected = true;
     p.mesh.visible = false;
     this.collected++;

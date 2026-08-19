@@ -24,6 +24,9 @@ const STALK_SPEED = 2.15;
 const CHASE_SPEED = 4.55;
 const SEARCH_SPEED = 2.4;
 const KILL_DIST = 1.3;
+/** exported so multiplayer clients can self-detect a kill against the
+ * synced entity position without duplicating any AI logic — see Engine.ts */
+export const ENTITY_KILL_DIST = KILL_DIST;
 
 /**
  * The Wanderer. A too-tall, too-thin silhouette that owns the dark.

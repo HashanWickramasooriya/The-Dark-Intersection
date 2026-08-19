@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -11,6 +12,7 @@ import {
 } from "react";
 import type { Engine, EngineCallbacks, GameState, HudState, MinimapState } from "./engine/Engine";
 import Minimap from "./Minimap";
+import { RoomClient } from "./net/RoomClient";
 
 const GameCanvas = dynamic(() => import("./GameCanvas"), { ssr: false });
 
@@ -40,6 +42,12 @@ export default function GameShell() {
   const [resuming, setResuming] = useState(false);
   const [banner, setBanner] = useState<{ title: string; hint: string } | null>(null);
   const [showCredits, setShowCredits] = useState(false);
+  const [mpPanel, setMpPanel] = useState(false);
+  const [mpName, setMpName] = useState("");
+  const [mpCode, setMpCode] = useState("");
+  const [mpBusy, setMpBusy] = useState(false);
+  const [mpError, setMpError] = useState<string | null>(null);
+  const router = useRouter();
   const isTouch = useMediaQuery("(pointer: coarse)");
   const portrait = useMediaQuery("(orientation: portrait)");
 
@@ -111,6 +119,35 @@ export default function GameShell() {
   }, [isTouch, portrait]);
 
   const begin = () => engineRef.current?.start();
+
+  const createMultiplayerRoom = async () => {
+    setMpBusy(true);
+    setMpError(null);
+    const client = new RoomClient();
+    try {
+      await client.connect();
+    } catch {
+      setMpError("සම්බන්ධතාවය අසාර්ථක විය — multiplayer server එක ක්‍රියාත්මකද කියා පරීක්ෂා කරන්න");
+      setMpBusy(false);
+      return;
+    }
+    const unsub = client.on((msg) => {
+      if (msg.type === "room_created") {
+        unsub();
+        sessionStorage.setItem("mp_name", mpName.trim());
+        client.close();
+        router.push(`/multiplayer/${msg.roomId}`);
+      }
+    });
+    client.send({ type: "create_room", name: mpName.trim() });
+  };
+
+  const joinMultiplayerRoom = () => {
+    const code = mpCode.trim().toUpperCase();
+    if (!code) return;
+    sessionStorage.setItem("mp_name", mpName.trim());
+    router.push(`/multiplayer/${code}`);
+  };
   const resume = () => {
     setResuming(true);
     engineRef.current?.resume();
@@ -332,24 +369,87 @@ export default function GameShell() {
                 </div>
               )}
 
-              <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
-                <button
-                  onClick={begin}
-                  disabled={!booted}
-                  className="font-sinhala group flex items-center gap-3 bg-amber-100/90 px-10 py-3 text-base tracking-[0.15em] text-black transition-all hover:bg-amber-50 hover:shadow-[0_0_30px_rgba(255,230,170,0.25)] disabled:opacity-40"
-                >
-                  <svg viewBox="0 0 10 12" className="h-3 w-3 fill-current" aria-hidden="true">
-                    <path d="M0 0 L10 6 L0 12 Z" />
-                  </svg>
-                  {booted ? "ඇතුල් වන්න" : "පටය පූරණය වෙමින්…"}
-                </button>
-                <button
-                  onClick={() => setShowCredits(true)}
-                  className="font-sinhala border border-amber-100/40 px-8 py-3 text-base tracking-widest text-amber-100/75 transition-all hover:border-amber-100/80 hover:bg-amber-100/5 hover:text-amber-100"
-                >
-                  නිර්මාණකරුවන්
-                </button>
-              </div>
+              {!mpPanel ? (
+                <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
+                  <button
+                    onClick={begin}
+                    disabled={!booted}
+                    className="font-sinhala group flex items-center gap-3 bg-amber-100/90 px-10 py-3 text-base tracking-[0.15em] text-black transition-all hover:bg-amber-50 hover:shadow-[0_0_30px_rgba(255,230,170,0.25)] disabled:opacity-40"
+                  >
+                    <svg viewBox="0 0 10 12" className="h-3 w-3 fill-current" aria-hidden="true">
+                      <path d="M0 0 L10 6 L0 12 Z" />
+                    </svg>
+                    {booted ? "තනි ක්‍රීඩාව" : "පටය පූරණය වෙමින්…"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMpPanel(true);
+                      setMpError(null);
+                    }}
+                    className="font-sinhala border border-amber-100/40 px-8 py-3 text-base tracking-widest text-amber-100/75 transition-all hover:border-amber-100/80 hover:bg-amber-100/5 hover:text-amber-100"
+                  >
+                    බහු ක්‍රීඩක
+                  </button>
+                  <button
+                    onClick={() => setShowCredits(true)}
+                    className="font-sinhala border border-amber-100/15 px-8 py-3 text-sm tracking-widest text-amber-100/50 transition-all hover:border-amber-100/60 hover:bg-amber-100/5 hover:text-amber-100/90"
+                  >
+                    නිර්මාණකරුවන්
+                  </button>
+                </div>
+              ) : (
+                <div className="font-sinhala mt-9 flex w-full max-w-xs flex-col items-stretch gap-3">
+                  <label className="text-left text-[11px] tracking-widest text-amber-100/50">
+                    ඔබගේ නම
+                  </label>
+                  <input
+                    value={mpName}
+                    onChange={(e) => setMpName(e.target.value.slice(0, 24))}
+                    placeholder="ක්‍රීඩකයා"
+                    className="font-sinhala border border-amber-100/30 bg-black/40 px-4 py-2.5 text-sm tracking-wide text-amber-100/90 outline-none placeholder:text-amber-100/25 focus:border-amber-100/70"
+                  />
+
+                  <button
+                    onClick={createMultiplayerRoom}
+                    disabled={mpBusy}
+                    className="mt-3 bg-amber-100/90 px-6 py-3 text-sm tracking-[0.15em] text-black transition-all hover:bg-amber-50 disabled:opacity-40"
+                  >
+                    {mpBusy ? "සම්බන්ධ වෙමින්…" : "කාමරයක් සාදන්න"}
+                  </button>
+
+                  <div className="my-1 text-center text-[11px] tracking-widest text-amber-100/30">— හෝ —</div>
+
+                  <label className="text-left text-[11px] tracking-widest text-amber-100/50">
+                    කාමර කේතය
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      value={mpCode}
+                      onChange={(e) => setMpCode(e.target.value.slice(0, 10))}
+                      placeholder="ABC123"
+                      className="min-w-0 flex-1 border border-amber-100/30 bg-black/40 px-4 py-2.5 text-sm uppercase tracking-[0.2em] text-amber-100/90 outline-none placeholder:tracking-widest placeholder:text-amber-100/25 focus:border-amber-100/70"
+                    />
+                    <button
+                      onClick={joinMultiplayerRoom}
+                      disabled={!mpCode.trim()}
+                      className="whitespace-nowrap border border-amber-100/40 px-5 py-2.5 text-sm tracking-widest text-amber-100/80 transition-all hover:border-amber-100/80 hover:bg-amber-100/5 disabled:opacity-30"
+                    >
+                      සම්බන්ධ වන්න
+                    </button>
+                  </div>
+
+                  {mpError && (
+                    <div className="mt-1 text-center text-[12px] tracking-wide text-red-300/80">{mpError}</div>
+                  )}
+
+                  <button
+                    onClick={() => setMpPanel(false)}
+                    className="mt-4 text-[12px] tracking-widest text-amber-100/40 transition-all hover:text-amber-100/80"
+                  >
+                    ආපසු
+                  </button>
+                </div>
+              )}
 
               <p className="font-sinhala mt-6 text-[11px] tracking-widest text-amber-100/25">
                 හෙඩ්ෆෝන් පැළඳීම තදින්ම නිර්දේශ කරමු
