@@ -6,10 +6,18 @@
 # before any script in CI/deploy hosts, so this isn't skipping verification,
 # just not redundantly repeating it inside every script run.
 verifyDepsBeforeRun: false
+
+# pnpm 11 defaults to strictDepBuilds: true — install exits non-zero if any
+# dependency has an unreviewed build (preinstall/install/postinstall)
+# script, which is what was actually failing the Railway build (the
+# [ERR_PNPM_IGNORED_BUILDS] block, not a warning). These three are
+# transitive deps (esbuild via tsx, sharp/unrs-resolver via Next.js) whose
+# native/build steps are safe and expected — explicitly allow just them,
+# per pnpm's documented CI mechanism, rather than disabling the check
+# globally (dangerouslyAllowAllBuilds).
 allowBuilds:
-  esbuild: set this to true or false
-  sharp: set this to true or false
-  unrs-resolver: set this to true or false
-ignoredBuiltDependencies:
-  - sharp
-  - unrs-resolver
+  esbuild: true
+  sharp: true
+  unrs-resolver: true
+
+strictDepBuilds: true
