@@ -23,21 +23,48 @@ const PORT = Number(process.env.PORT) || 8787;
 // makes the process reachable from their edge/proxy layer.
 const HOST = process.env.HOST || "0.0.0.0";
 
+/**
+ * Strips a single matching pair of wrapping quotes. Some hosting
+ * dashboards' env-var UIs preserve literal quote characters when a value is
+ * pasted in already-quoted (e.g. ALLOWED_ORIGINS="a,b,c") — that leaves a
+ * stray leading/trailing `"` on the first/last entry after splitting, which
+ * survives a plain .trim() and silently breaks an exact-match comparison.
+ */
+function stripWrappingQuotes(s: string): string {
+  if (s.length >= 2) {
+    const first = s[0];
+    const last = s[s.length - 1];
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      return s.slice(1, -1);
+    }
+  }
+  return s;
+}
+
+/** Trim, unquote, and drop any trailing slash so config typos and stray
+ * formatting can't cause a same-origin request to be silently rejected. */
+function normalizeOrigin(raw: string): string {
+  return stripWrappingQuotes(raw.trim()).trim().replace(/\/+$/, "");
+}
+
 // Browsers send an Origin header on WebSocket handshakes; non-browser
 // clients (health checks, local test scripts, server-to-server) send none
 // and are always allowed. Configurable via ALLOWED_ORIGINS (comma-separated)
-// so the production Vercel domain can be set without touching source.
-const ALLOWED_ORIGINS = (
-  process.env.ALLOWED_ORIGINS ??
-  "http://localhost:3000,https://the-dark-intersection-multiplayer.vercel.app"
-)
+// so the production Vercel domain(s) can be set without touching source.
+const rawAllowedOrigins = stripWrappingQuotes(
+  (
+    process.env.ALLOWED_ORIGINS ??
+    "http://localhost:3000,https://the-dark-intersection-multiplayer.vercel.app"
+  ).trim(),
+);
+const ALLOWED_ORIGINS = rawAllowedOrigins
   .split(",")
-  .map((s) => s.trim())
+  .map(normalizeOrigin)
   .filter(Boolean);
 
 function isOriginAllowed(origin: string | undefined): boolean {
   if (!origin) return true;
-  return ALLOWED_ORIGINS.includes(origin);
+  return ALLOWED_ORIGINS.includes(normalizeOrigin(origin));
 }
 
 const manager = new RoomManager();
