@@ -10,6 +10,7 @@ import { RemotePlayer } from "./RemotePlayer";
 import { RemoteMonster } from "./RemoteMonster";
 import type { RoomClient } from "../net/RoomClient";
 import type { ServerMessage, Vec3 } from "../net/protocol";
+import { Language, t } from "../i18n/translations";
 
 export type GameState = "idle" | "playing" | "paused" | "dying" | "dead" | "won";
 
@@ -36,6 +37,10 @@ export interface HudState {
   stamina: number;
   prompt: string | null;
   objective: string;
+  /** Machine-readable objective phase — for UI logic (e.g. deciding when
+   * the objective banner should re-announce itself) that must not depend
+   * on parsing the already-localized `objective` string. */
+  objectiveKind: "collect" | "findExit" | "go";
   flashlight: boolean;
   sneaking: boolean;
   /** compact list of active cheats, e.g. "GOD · NOCLIP" — null when none */
@@ -165,6 +170,7 @@ export class Engine {
     private container: HTMLElement,
     private canvas: HTMLCanvasElement,
     private callbacks: EngineCallbacks,
+    private lang: Language,
     private net?: EngineNetContext,
   ) {
     const seed = net?.seed ?? (Date.now() ^ (Math.random() * 0xffffff)) >>> 0;
@@ -214,7 +220,7 @@ export class Engine {
     // independently by every client (see loop()'s "self-proximity" check).
     this.entity.onKill = () => { if (!this.net) this.beginDeath(); };
 
-    this.items = new Items(this.level, seed, this.scene);
+    this.items = new Items(this.level, seed, this.scene, lang);
 
     if (this.net) {
       this.isMonsterAuthority = this.net.isHost;
@@ -369,7 +375,7 @@ export class Engine {
       if (e.code === "ControlLeft" || e.code === "ControlRight") {
         if (!this.ctrlHintShown) {
           this.ctrlHintShown = true;
-          this.toast("සෙමින් ගමන් [C] කරයි — CTRL අල්ලාගෙන නොසිටින්න, CTRL+W ටැබය වසයි");
+          this.toast(t(this.lang, "cheat.sneakHint"));
         }
         return;
       }
@@ -474,7 +480,7 @@ export class Engine {
       this.cheatBuffer = (this.cheatBuffer + e.key.toLowerCase()).slice(-10);
       if (!this.cheats.unlocked && this.cheatBuffer.endsWith("redrum")) {
         this.cheats.unlocked = true;
-        this.toast("වංචා ක්‍රම සක්‍රීය කරන ලදී — [G]අනභිභවනීය [N]බිත්ති හරහා [B]දීප්තිමත් [X]නවතන්න [M]සිතියම [P]පිටු [T]ටෙලිපෝට්");
+        this.toast(t(this.lang, "cheat.unlocked"));
         return;
       }
     }
@@ -483,12 +489,12 @@ export class Engine {
     switch (e.code) {
       case "KeyG":
         this.cheats.god = !this.cheats.god;
-        this.toast(`අනභිභවනීය ක්‍රමය ${this.cheats.god ? "සක්‍රීයයි" : "අක්‍රීයයි"}`);
+        this.toast(t(this.lang, "cheat.god", { state: t(this.lang, this.cheats.god ? "cheat.on" : "cheat.off") }));
         break;
       case "KeyN":
         this.cheats.noclip = !this.cheats.noclip;
         this.player.noclip = this.cheats.noclip;
-        this.toast(`බිත්ති හරහා ගමන ${this.cheats.noclip ? "සක්‍රීයයි — බිත්ති හරහා ගමන් කරන්න" : "අක්‍රීයයි"}`);
+        this.toast(t(this.lang, this.cheats.noclip ? "cheat.noclipOn" : "cheat.noclipOff"));
         break;
       case "KeyB":
         this.cheats.fullbright = !this.cheats.fullbright;
@@ -499,15 +505,15 @@ export class Engine {
           this.scene.remove(this.brightLight);
           this.brightLight = null;
         }
-        this.toast(`සම්පූර්ණ ආලෝකය ${this.cheats.fullbright ? "සක්‍රීයයි" : "අක්‍රීයයි"}`);
+        this.toast(t(this.lang, "cheat.fullbright", { state: t(this.lang, this.cheats.fullbright ? "cheat.on" : "cheat.off") }));
         break;
       case "KeyX":
         this.cheats.freeze = !this.cheats.freeze;
-        this.toast(`ආගන්තුකයා ${this.cheats.freeze ? "නවතන ලදී" : "නිදහස් කරන ලදී"}`);
+        this.toast(t(this.lang, this.cheats.freeze ? "cheat.freezeOn" : "cheat.freezeOff"));
         break;
       case "KeyM":
         this.cheats.map = !this.cheats.map;
-        this.toast(`සිතියම ${this.cheats.map ? "සක්‍රීයයි" : "අක්‍රීයයි"}`);
+        this.toast(t(this.lang, "cheat.map", { state: t(this.lang, this.cheats.map ? "cheat.on" : "cheat.off") }));
         break;
       case "KeyP": {
         let grabbed = 0;
@@ -518,7 +524,7 @@ export class Engine {
           }
         });
         if (grabbed > 0 && this.entity.state === "dormant") this.entity.activate();
-        this.toast(`පිටු ලබා දෙන ලදී (+${grabbed}) — දොර සොයන්න`);
+        this.toast(t(this.lang, "cheat.grabbedPages", { count: grabbed }));
         this.pushHud(true);
         break;
       }
@@ -531,7 +537,7 @@ export class Engine {
         );
         this.player.vel.set(0, 0, 0);
         this.player.yaw = Math.atan2(-exit.facing.x, -exit.facing.z) + Math.PI;
-        this.toast("පිටවීමේ දොර වෙත ටෙලිපෝට් කරන ලදී");
+        this.toast(t(this.lang, "cheat.teleportExit"));
         break;
       }
     }
@@ -568,7 +574,7 @@ export class Engine {
       this.fearSpike = Math.max(0, this.fearSpike - 0.5);
       this.fear = Math.max(0, this.fear - 0.3);
       this.audio.drink();
-      this.toast("ශක්තිය යථා තත්ත්වයට පත් විය — හදවත සන්සුන් වෙයි");
+      this.toast(t(this.lang, "item.waterRestored"));
       this.pushHud(true);
     } else if (hit.type === "door" && this.items.allCollected && !this.items.exitOpen && !this.net) {
       // Multiplayer: the door opens for every player the instant the server
@@ -614,7 +620,7 @@ export class Engine {
         break;
       }
       case "player_died": {
-        if (msg.playerId !== this.net.localPlayerId) this.toast("සගයෙක් ග්‍රහණය විය");
+        if (msg.playerId !== this.net.localPlayerId) this.toast(t(this.lang, "mp.remoteDiedToast"));
         break;
       }
       case "page_collected": {
@@ -1175,21 +1181,22 @@ export class Engine {
   private pushHud(force = false) {
     void force;
     const active: string[] = [];
-    if (this.cheats.god) active.push("අනභිභවනීය");
-    if (this.cheats.noclip) active.push("බිත්ති හරහා");
-    if (this.cheats.fullbright) active.push("දීප්තිමත්");
-    if (this.cheats.freeze) active.push("නවතන ලදී");
-    if (this.cheats.map) active.push("සිතියම");
+    if (this.cheats.god) active.push(t(this.lang, "cheat.label.god"));
+    if (this.cheats.noclip) active.push(t(this.lang, "cheat.label.noclip"));
+    if (this.cheats.fullbright) active.push(t(this.lang, "cheat.label.fullbright"));
+    if (this.cheats.freeze) active.push(t(this.lang, "cheat.label.freeze"));
+    if (this.cheats.map) active.push(t(this.lang, "cheat.label.map"));
     this.callbacks.onHud({
       pages: this.items.collected,
       totalPages: TOTAL_PAGES,
       stamina: this.player.stamina,
       prompt: this.lastPrompt,
       objective: !this.items.allCollected
-        ? `පිටු එකතු කරන්න — ${this.items.collected}/${TOTAL_PAGES}`
+        ? t(this.lang, "hud.objectiveCollect", { count: this.items.collected, total: TOTAL_PAGES })
         : this.items.exitOpen
-          ? "පිටතට යන්න"
-          : "පිටවීමේ දොර සොයන්න",
+          ? t(this.lang, "hud.objectiveGo")
+          : t(this.lang, "hud.objectiveFindExit"),
+      objectiveKind: !this.items.allCollected ? "collect" : this.items.exitOpen ? "go" : "findExit",
       flashlight: this.player.flashlightOn,
       sneaking: this.player.sneaking,
       cheats: active.length > 0 ? active.join(" · ") : null,

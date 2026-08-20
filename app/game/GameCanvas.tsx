@@ -2,15 +2,17 @@
 
 import { useEffect, useRef } from "react";
 import { Engine, EngineCallbacks, EngineNetContext } from "./engine/Engine";
+import { Language } from "./i18n/translations";
 
 interface Props {
   callbacksRef: React.RefObject<EngineCallbacks>;
   onReady: (engine: Engine) => void;
+  lang: Language;
   /** present only for multiplayer runs — single-player passes nothing */
   net?: EngineNetContext;
 }
 
-export default function GameCanvas({ callbacksRef, onReady, net }: Props) {
+export default function GameCanvas({ callbacksRef, onReady, lang, net }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -30,7 +32,7 @@ export default function GameCanvas({ callbacksRef, onReady, net }: Props) {
         onStats: (s) => callbacksRef.current?.onStats(s),
         onToast: (m) => callbacksRef.current?.onToast(m),
         onGameOver: (w) => callbacksRef.current?.onGameOver?.(w),
-      }, net);
+      }, lang, net);
       if (process.env.NODE_ENV !== "production") {
         (window as unknown as Record<string, unknown>).__backrooms = engine;
       }

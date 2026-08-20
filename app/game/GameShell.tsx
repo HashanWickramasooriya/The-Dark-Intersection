@@ -14,6 +14,8 @@ import type { Engine, EngineCallbacks, GameState, HudState, MinimapState } from 
 import Minimap from "./Minimap";
 import { RoomClient } from "./net/RoomClient";
 import { setPendingRoom } from "./net/pendingRoom";
+import { LANGUAGES } from "./i18n/translations";
+import { useLanguage } from "./i18n/LanguageContext";
 
 const GameCanvas = dynamic(() => import("./GameCanvas"), { ssr: false });
 
@@ -22,7 +24,8 @@ const INITIAL_HUD: HudState = {
   totalPages: 8,
   stamina: 1,
   prompt: null,
-  objective: "පිටු එකතු කරන්න — 0/8",
+  objective: "",
+  objectiveKind: "collect",
   flashlight: true,
   sneaking: false,
   cheats: null,
@@ -30,6 +33,7 @@ const INITIAL_HUD: HudState = {
 };
 
 export default function GameShell() {
+  const { lang, setLang, t } = useLanguage();
   const engineRef = useRef<Engine | null>(null);
   const autoStartRef = useRef(false);
   const [runId, setRunId] = useState(0);
@@ -69,17 +73,16 @@ export default function GameShell() {
       // Big objective banner whenever the objective *kind* changes (run
       // start, all pages found, door opened) — not on every counter tick.
       // New players were missing the tiny corner text entirely.
-      const kind = h.objective.split("—")[0].trim();
-      if (kind !== bannerKindRef.current) {
-        bannerKindRef.current = kind;
+      if (h.objectiveKind !== bannerKindRef.current) {
+        bannerKindRef.current = h.objectiveKind;
         const hint =
-          kind === "පිටු එකතු කරන්න"
+          h.objectiveKind === "collect"
             ? isTouchRef.current
-              ? "බිත්තිවල අලවා ඇත — ළං වී 'පිටුව ලබා ගන්න' ඔබන්න"
-              : "බිත්තිවල අලවා ඇත — ඒවා ගැනීමට [E] එබන්න"
-            : kind === "පිටවීමේ දොර සොයන්න"
-              ? "පිටු සියල්ල සොයා ගන්නා ලදී — කොහේ හරි දොරක් අගුළු ඇරී ඇත"
-              : "දොර හරහා පිටවන්න — දුවන්න";
+              ? t("hud.banner.pagesHintTouch")
+              : t("hud.banner.pagesHint")
+            : h.objectiveKind === "findExit"
+              ? t("hud.banner.findExitHint")
+              : t("hud.banner.goExitHint");
         setBanner({ title: h.objective, hint });
         if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
         bannerTimerRef.current = setTimeout(() => setBanner(null), 5200);
@@ -128,7 +131,7 @@ export default function GameShell() {
     try {
       await client.connect();
     } catch {
-      setMpError("සම්බන්ධතාවය අසාර්ථක විය — multiplayer server එක ක්‍රියාත්මකද කියා පරීක්ෂා කරන්න");
+      setMpError(t("mp.connectError"));
       setMpBusy(false);
       return;
     }
@@ -146,7 +149,11 @@ export default function GameShell() {
         // found" every time.
         unsub();
         sessionStorage.setItem("mp_name", mpName.trim());
-        sessionStorage.setItem("mp_name_set", "1");
+        // Scoped to THIS specific room, not a tab-wide "a name was ever
+        // entered" flag — see MultiplayerRoom.tsx's nameConfirmed check for
+        // why (a stale global flag would silently skip name entry on a
+        // later, unrelated room visit).
+        sessionStorage.setItem("mp_name_confirmed_room", createdRoomId);
         setPendingRoom({
           roomId: createdRoomId,
           client,
@@ -164,7 +171,7 @@ export default function GameShell() {
     const code = mpCode.trim().toUpperCase();
     if (!code) return;
     sessionStorage.setItem("mp_name", mpName.trim());
-    sessionStorage.setItem("mp_name_set", "1");
+    sessionStorage.setItem("mp_name_confirmed_room", code);
     router.push(`/multiplayer/${code}`);
   };
   const resume = () => {
@@ -197,7 +204,7 @@ export default function GameShell() {
 
   return (
     <div className="fixed inset-0 select-none overflow-hidden bg-black">
-      <GameCanvas key={runId} callbacksRef={callbacksRef} onReady={handleReady} />
+      <GameCanvas key={runId} callbacksRef={callbacksRef} onReady={handleReady} lang={lang} />
 
       {/* dev/cheat toast — sits above everything */}
       {toast && (
@@ -212,10 +219,10 @@ export default function GameShell() {
           <div className="phone-spin h-16 w-10 rounded-md border-2 border-amber-100/60" />
 
           <div className="font-sinhala text-lg tracking-widest text-amber-100/80">
-            ඔබේ උපාංගය හරවන්න
+            {t("touch.turnDevice")}
           </div>
           <p className="font-sinhala max-w-xs text-center text-xs leading-5 tracking-[0.05em] text-amber-100/40">
-            අඳුරු මංසන්ධිය පවතින්නේ තිරස් දිශාවේ පමණි
+            {t("touch.portraitOnly")}
           </p>
         </div>
       )}
@@ -248,7 +255,7 @@ export default function GameShell() {
           {banner && (
             <div className="objective-pop absolute left-1/2 top-[28%] border-y border-amber-100/15 bg-black/45 px-10 py-4 text-center shadow-[0_0_50px_rgba(0,0,0,0.55)] backdrop-blur-[2px]">
               <div className="font-sinhala text-[11px] tracking-[0.3em] text-amber-100/55">
-                අරමුණ
+                {t("hud.banner.label")}
               </div>
               <div className="font-sinhala mt-2 whitespace-nowrap text-2xl tracking-widest text-amber-50 [text-shadow:0_0_26px_rgba(255,230,160,0.7)]">
                 {banner.title}
@@ -262,27 +269,29 @@ export default function GameShell() {
           {/* active cheats — always visible while any cheat is on */}
           {hud.cheats && (
             <div className="font-sinhala absolute left-5 top-10 text-[11px] tracking-widest text-emerald-300/80 [text-shadow:0_0_10px_rgba(60,255,160,0.35)]">
-              වංචා ක්‍රම: {hud.cheats}
+              {t("hud.cheatsLabel")}: {hud.cheats}
             </div>
           )}
 
           {/* sneaking indicator */}
           {hud.sneaking && (
             <div className="font-sinhala absolute bottom-14 left-1/2 -translate-x-1/2 text-[11px] tracking-[0.2em] text-amber-100/45">
-              — සෙමින් ගමන් කරමින් —
+              {t("hud.sneakingIndicator")}
             </div>
           )}
 
           {/* pages */}
           <div className="font-sinhala absolute bottom-4 left-5 text-sm tracking-[0.15em] text-amber-100/60">
-            පිටු {hud.pages}/{hud.totalPages}
+            {t("hud.pages", { count: hud.pages, total: hud.totalPages })}
           </div>
 
           {/* key hints (desktop only) */}
           {!isTouch && (
             <div className="font-sinhala absolute bottom-4 right-5 text-[11px] tracking-widest text-amber-100/35">
-              [F] ටෝච් {hud.flashlight ? "ක්‍රියාත්මකයි" : "නිෂ්ක්‍රියයි"} · [SHIFT] දුවන්න · [C] සෙමින්{" "}
-              {hud.sneaking ? "ක්‍රියාත්මකයි" : "නිෂ්ක්‍රියයි"}
+              {t("hud.keyHints", {
+                flashlight: t(hud.flashlight ? "hud.on" : "hud.off"),
+                sneaking: t(hud.sneaking ? "hud.on" : "hud.off"),
+              })}
             </div>
           )}
 
@@ -324,69 +333,73 @@ export default function GameShell() {
           {showCredits ? (
             <>
               <h2 className="vhs-title font-sinhala text-3xl tracking-[0.15em] text-amber-50/90">
-                නිර්මාණකරුවන්
+                {t("credits.title")}
               </h2>
               <div className="font-sinhala mt-8 flex max-w-md flex-col items-center gap-3 text-center text-[13px] leading-6 tracking-[0.05em] text-amber-100/55">
-                <p>Hashanwickramasooriya විසින් නිර්මාණය කළ ක්‍රීඩාවකි</p>
-                <p className="text-amber-100/35">
-                  මෙහි ඇති සෑම බිත්තියක්ම, වයනයක්ම, ශබ්දයක්ම සහ කෑගැසීමක්ම
-                  කේතය මගින් ජනනය කරන ලද්දකි. මෙහි කිසිදු සම්පත් ගොනුවක් නැත.
-                  මට්ටම් ගොනුවක්ද නැත. සෑම ධාවනයක්ම මීට පෙර කිසි විටෙකත්
-                  නොපැවති අලුත් මාදිලියක් තනයි.
-                </p>
-                <p className="text-amber-100/35">
-                  තැනුවේ three.js · next.js · webaudio මගිනි
-                </p>
-                <p className="text-amber-100/35">Developer&nbsp;&nbsp;හෂාන්</p>
-              </div>
-              <div className="mt-7 flex items-center gap-8">
-                <GitHubBadge />
-                <XBadge />
+                <p>{t("credits.madeBy")}</p>
+                <p className="text-amber-100/35">{t("credits.description")}</p>
+                <p className="text-amber-100/35">{t("credits.builtWith")}</p>
+                <p className="text-amber-100/35">{t("credits.developer")}</p>
               </div>
               <ArmedButton
                 onClick={() => setShowCredits(false)}
                 className="font-sinhala mt-10 border border-amber-100/30 px-10 py-2.5 text-sm tracking-[0.2em] text-amber-100/70 transition-all hover:border-amber-100/80 hover:bg-amber-100/5"
               >
-                ආපසු
+                {t("credits.back")}
               </ArmedButton>
             </>
           ) : (
             <>
               <div className="flicker-slow font-sinhala text-[11px] tracking-[0.3em] text-amber-200/40">
-                මට්ටම 0
+                {t("menu.level")}
               </div>
               <h1 className="vhs-title font-sinhala mt-3 text-5xl tracking-[0.05em] text-amber-50/95 sm:text-6xl">
-                අඳුරු මංසන්ධිය
+                {t("menu.title")}
               </h1>
               <p className="font-sinhala mt-4 max-w-md text-center text-sm italic leading-6 text-amber-100/50">
-                නිමක් නැති මාවතකින් පිටවීමක් සොයන්න.
+                {t("menu.subtitle")}
               </p>
               <p className="font-sinhala mt-5 max-w-md text-center text-sm leading-6 text-amber-100/45">
-                ඔබ යථාර්ථයේ වැරදි කෙළවරකින් ලිස්සී වැටුණා, ලෝකය ඔබ පිටුපසින්
-                සදහටම වැසී ගියා. කවුරුහරි මීට පෙර මෙහි සිටියා — ඔවුන් මෙම
-                බිත්ති මත පිටු 8ක් අත්හැර ගියා. ඒවා සියල්ල එකතු කරගන්න, එවිට
-                දොර පෙනී යනු ඇත. ආලෝකය නිවී යාමට පටන් ගත් විට, එය ඔබ ඇවිදින
-                හඬ නොඇසෙන්න වගබලා ගන්න.
+                {t("menu.lore")}
               </p>
 
               {isTouch ? (
                 <div className="font-sinhala mt-7 grid grid-cols-2 gap-x-10 gap-y-1.5 text-[12px] tracking-[0.05em] text-amber-100/35">
-                  <span>වම් ස්ටික් — ඇවිදින්න</span>
-                  <span>දකුණු පැත්ත — බලන්න</span>
-                  <span>ස්ටික් සම්පූර්ණයෙන් — දුවන්න</span>
-                  <span>බොත්තම් — ටෝච් / සෙමින්</span>
+                  <span>{t("menu.controls.touch1")}</span>
+                  <span>{t("menu.controls.touch2")}</span>
+                  <span>{t("menu.controls.touch3")}</span>
+                  <span>{t("menu.controls.touch4")}</span>
                 </div>
               ) : (
                 <div className="font-sinhala mt-7 grid grid-cols-2 gap-x-10 gap-y-1.5 text-[12px] tracking-[0.05em] text-amber-100/35">
-                  <span>WASD — ඇවිදින්න</span>
-                  <span>MOUSE — බලන්න</span>
-                  <span>SHIFT — දුවන්න</span>
-                  <span>C — සෙමින් ගමන් කරන්න</span>
-                  <span>F — විදුලි පන්දම</span>
-                  <span>E — අන්තර්ක්‍රියා කරන්න</span>
-                  <span>ESC — විරාමය</span>
+                  <span>{t("menu.controls.wasd")}</span>
+                  <span>{t("menu.controls.mouse")}</span>
+                  <span>{t("menu.controls.shift")}</span>
+                  <span>{t("menu.controls.crouch")}</span>
+                  <span>{t("menu.controls.torch")}</span>
+                  <span>{t("menu.controls.interact")}</span>
+                  <span>{t("menu.controls.pause")}</span>
                 </div>
               )}
+
+              {/* language selector */}
+              <div className="mt-6 flex items-center gap-2 text-[11px] tracking-widest text-amber-100/35">
+                <span className="font-sinhala">{t("menu.language")}</span>
+                {LANGUAGES.map((l) => (
+                  <button
+                    key={l.code}
+                    onClick={() => setLang(l.code)}
+                    aria-pressed={lang === l.code}
+                    className={`font-sinhala border px-3 py-1 transition-all ${
+                      lang === l.code
+                        ? "border-amber-100/70 bg-amber-100/15 text-amber-100"
+                        : "border-amber-100/20 text-amber-100/50 hover:border-amber-100/50 hover:text-amber-100/80"
+                    }`}
+                  >
+                    {l.label}
+                  </button>
+                ))}
+              </div>
 
               {!mpPanel ? (
                 <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
@@ -398,7 +411,7 @@ export default function GameShell() {
                     <svg viewBox="0 0 10 12" className="h-3 w-3 fill-current" aria-hidden="true">
                       <path d="M0 0 L10 6 L0 12 Z" />
                     </svg>
-                    {booted ? "තනි ක්‍රීඩාව" : "පටය පූරණය වෙමින්…"}
+                    {booted ? t("menu.singlePlayer") : t("menu.loading")}
                   </button>
                   <button
                     onClick={() => {
@@ -407,24 +420,24 @@ export default function GameShell() {
                     }}
                     className="font-sinhala border border-amber-100/40 px-8 py-3 text-base tracking-widest text-amber-100/75 transition-all hover:border-amber-100/80 hover:bg-amber-100/5 hover:text-amber-100"
                   >
-                    බහු ක්‍රීඩක
+                    {t("menu.multiplayer")}
                   </button>
                   <button
                     onClick={() => setShowCredits(true)}
                     className="font-sinhala border border-amber-100/15 px-8 py-3 text-sm tracking-widest text-amber-100/50 transition-all hover:border-amber-100/60 hover:bg-amber-100/5 hover:text-amber-100/90"
                   >
-                    නිර්මාණකරුවන්
+                    {t("menu.credits")}
                   </button>
                 </div>
               ) : (
                 <div className="font-sinhala mt-9 flex w-full max-w-xs flex-col items-stretch gap-3">
                   <label className="text-left text-[11px] tracking-widest text-amber-100/50">
-                    ඔබගේ නම
+                    {t("mp.yourName")}
                   </label>
                   <input
                     value={mpName}
                     onChange={(e) => setMpName(e.target.value.slice(0, 24))}
-                    placeholder="ක්‍රීඩකයා"
+                    placeholder={t("mp.namePlaceholder")}
                     className="font-sinhala border border-amber-100/30 bg-black/40 px-4 py-2.5 text-sm tracking-wide text-amber-100/90 outline-none placeholder:text-amber-100/25 focus:border-amber-100/70"
                   />
 
@@ -433,19 +446,19 @@ export default function GameShell() {
                     disabled={mpBusy}
                     className="mt-3 bg-amber-100/90 px-6 py-3 text-sm tracking-[0.15em] text-black transition-all hover:bg-amber-50 disabled:opacity-40"
                   >
-                    {mpBusy ? "සම්බන්ධ වෙමින්…" : "කාමරයක් සාදන්න"}
+                    {mpBusy ? t("mp.connecting") : t("mp.createRoom")}
                   </button>
 
-                  <div className="my-1 text-center text-[11px] tracking-widest text-amber-100/30">— හෝ —</div>
+                  <div className="my-1 text-center text-[11px] tracking-widest text-amber-100/30">{t("mp.or")}</div>
 
                   <label className="text-left text-[11px] tracking-widest text-amber-100/50">
-                    කාමර කේතය
+                    {t("mp.roomCode")}
                   </label>
                   <div className="flex gap-2">
                     <input
                       value={mpCode}
                       onChange={(e) => setMpCode(e.target.value.slice(0, 10))}
-                      placeholder="ABC123"
+                      placeholder={t("mp.roomCodePlaceholder")}
                       className="min-w-0 flex-1 border border-amber-100/30 bg-black/40 px-4 py-2.5 text-sm uppercase tracking-[0.2em] text-amber-100/90 outline-none placeholder:tracking-widest placeholder:text-amber-100/25 focus:border-amber-100/70"
                     />
                     <button
@@ -453,7 +466,7 @@ export default function GameShell() {
                       disabled={!mpCode.trim()}
                       className="whitespace-nowrap border border-amber-100/40 px-5 py-2.5 text-sm tracking-widest text-amber-100/80 transition-all hover:border-amber-100/80 hover:bg-amber-100/5 disabled:opacity-30"
                     >
-                      සම්බන්ධ වන්න
+                      {t("mp.join")}
                     </button>
                   </div>
 
@@ -465,16 +478,16 @@ export default function GameShell() {
                     onClick={() => setMpPanel(false)}
                     className="mt-4 text-[12px] tracking-widest text-amber-100/40 transition-all hover:text-amber-100/80"
                   >
-                    ආපසු
+                    {t("mp.back")}
                   </button>
                 </div>
               )}
 
               <p className="font-sinhala mt-6 text-[11px] tracking-widest text-amber-100/25">
-                හෙඩ්ෆෝන් පැළඳීම තදින්ම නිර්දේශ කරමු
+                {t("menu.headphonesHint")}
               </p>
               <p className="font-sinhala mt-2 text-[10px] tracking-widest text-amber-100/20">
-                Developer&nbsp;&nbsp;හෂාන්
+                {t("menu.developer")}
               </p>
             </>
           )}
@@ -485,26 +498,26 @@ export default function GameShell() {
       {state === "paused" && (
         <Overlay>
           <h2 className="font-sinhala text-4xl tracking-[0.15em] text-amber-100/80">
-            විරාමය
+            {t("paused.title")}
           </h2>
           <p className="font-sinhala mt-4 text-sm tracking-widest text-amber-100/40">
-            එය තවමත් එහි ඇත. එයට විරාමයක් නැත.
+            {t("paused.subtitle")}
           </p>
           <ArmedButton
             onClick={resume}
             disabled={resuming}
             className="font-sinhala mt-8 border border-amber-100/30 px-10 py-3 tracking-[0.2em] text-amber-100/80 transition-all hover:border-amber-100/80 hover:bg-amber-100/5 disabled:opacity-50"
           >
-            {resuming ? "නැවත ආරම්භ වෙමින්…" : "නැවත ආරම්භ කරන්න"}
+            {resuming ? t("paused.resuming") : t("paused.resume")}
           </ArmedButton>
           <ArmedButton
             onClick={exitToMenu}
             className="font-sinhala mt-4 border border-amber-100/15 px-10 py-2.5 text-sm tracking-[0.2em] text-amber-100/45 transition-all hover:border-red-300/50 hover:text-red-200/80 disabled:opacity-50"
           >
-            මෙනුවට ඉවත් වන්න
+            {t("paused.exitToMenu")}
           </ArmedButton>
           <p className="font-sinhala mt-3 text-[10px] tracking-widest text-amber-100/20">
-            ධාවනය නැතිවුණි. පිටු රැඳී පවතී.
+            {t("paused.footer")}
           </p>
           <div className="mt-8 flex items-center gap-8">
             <GitHubBadge />
@@ -517,19 +530,19 @@ export default function GameShell() {
       {state === "dead" && (
         <Overlay tint="red">
           <h2 className="font-sinhala glitch-text text-4xl tracking-widest text-red-300/90 [text-shadow:0_0_40px_rgba(255,40,40,0.4)]">
-            ඔබව රැගෙන ගියා
+            {t("dead.title")}
           </h2>
           <p className="font-sinhala mt-6 text-sm tracking-widest text-red-200/40">
-            සොයාගත් පිටු — {stats.pages}/8 · ජීවත්ව සිටි කාලය — {mmss}
+            {t("dead.stats", { pages: stats.pages, time: mmss })}
           </p>
           <p className="font-sinhala mt-2 text-xs tracking-widest text-red-200/30">
-            අඳුරු මංසන්ධිය අල්ලාගත්තේ තබාගනියි.
+            {t("dead.footer")}
           </p>
           <ArmedButton
             onClick={retry}
             className="font-sinhala mt-10 border border-red-300/30 px-10 py-3 tracking-[0.2em] text-red-200/80 transition-all hover:border-red-300/80 hover:bg-red-300/5 disabled:opacity-40"
           >
-            නැවත අවදි වන්න
+            {t("dead.retry")}
           </ArmedButton>
         </Overlay>
       )}
@@ -538,21 +551,21 @@ export default function GameShell() {
       {state === "won" && (
         <Overlay tint="light">
           <h2 className="font-sinhala text-4xl tracking-widest text-amber-50 [text-shadow:0_0_50px_rgba(255,255,220,0.8)]">
-            ඔබ පිටතට පැමිණියා
+            {t("won.title")}
           </h2>
           <p className="font-sinhala mt-6 text-sm tracking-widest text-amber-100/60">
-            පිටු 8ම · පලා ගිය කාලය {mmss}
+            {t("won.stats", { time: mmss })}
           </p>
           <p className="font-sinhala mt-2 text-xs tracking-widest text-amber-100/40">
-            …නැත්නම් ඔබ බිත්තිය හරහා මට්ටම 1ට රිංගුනාද?
+            {t("won.footer")}
           </p>
           <ArmedButton
             onClick={retry}
             className="font-sinhala mt-10 border border-amber-100/40 px-10 py-3 tracking-[0.2em] text-amber-100/90 transition-all hover:border-amber-100/90 hover:bg-amber-100/10 disabled:opacity-40"
           >
-            නැවත ඇතුළු වන්න
+            {t("won.retry")}
           </ArmedButton>
-          <GitHubBadge className="mt-8" label="පැනගියාද? තරුවක් තියන්න" />
+          <GitHubBadge className="mt-8" label={t("won.starPrompt")} />
         </Overlay>
       )}
     </div>
@@ -652,6 +665,7 @@ function TouchControls({
   flashlight: boolean;
   sneaking: boolean;
 }) {
+  const { t } = useLanguage();
   const baseRef = useRef<HTMLDivElement>(null);
   const knobRef = useRef<HTMLDivElement>(null);
   const stickActive = useRef(false);
@@ -735,7 +749,7 @@ function TouchControls({
             }`}
             onPointerDown={() => engineRef.current?.setSneak(!sneaking)}
           >
-            සෙමින්
+            {t("touch.sneak")}
           </button>
           <button
             className={`font-sinhala rounded border px-4 py-3 text-[11px] tracking-widest ${
@@ -745,7 +759,7 @@ function TouchControls({
             }`}
             onPointerDown={() => engineRef.current?.touchTorch()}
           >
-            ටෝච්
+            {t("touch.torch")}
           </button>
         </div>
       </div>

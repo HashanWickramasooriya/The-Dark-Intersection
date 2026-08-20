@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { Analytics } from "@vercel/analytics/next";
+import { LanguageProvider } from "./game/i18n/LanguageContext";
 import "./globals.css";
 
 // Special Elite (Apache 2.0), self-hosted: builds kept failing on flaky
@@ -35,9 +36,7 @@ const SITE = "https://backroom-escape.vercel.app";
 export const metadata: Metadata = {
   // Absolute base so og:image/twitter:image resolve for social scrapers.
   metadataBase: new URL(SITE),
-  // Search-facing title (what people actually type: "backrooms game",
-  // "browser horror game"). In-game branding is now "අඳුරු මංසන්ධිය".
-  title: "Backrooms: Level 0 — Free Browser Horror Game",
+  title: "The Dark Intersection",
   description:
     "Play the Backrooms free in your browser. First-person horror in a procedurally generated maze — find the 8 pages, escape Level 0, don't let it hear you walk. No download.",
   applicationName: "Backrooms: Level 0",
@@ -135,7 +134,7 @@ export default function RootLayout({
             __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c"),
           }}
         />
-        {children}
+        <LanguageProvider>{children}</LanguageProvider>
         {/* Vercel-only — the CrazyGames bundle would just spam 404s */}
         {process.env.CG_EXPORT !== "1" && <Analytics />}
       </body>

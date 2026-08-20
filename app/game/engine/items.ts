@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { Level } from "./level";
 import { makePageTexture, makeWaterLabelTexture, PAGE_TEXTS } from "./textures";
+import { Language, t } from "../i18n/translations";
 
 export const TOTAL_PAGES = 8;
 
@@ -34,7 +35,7 @@ export class Items {
   private beyondGlow!: THREE.Mesh;
   private vTo = new THREE.Vector3(); // scratch — called every frame
 
-  constructor(private level: Level, seed: number, scene: THREE.Scene) {
+  constructor(private level: Level, seed: number, scene: THREE.Scene, private lang: Language) {
     const geo = new THREE.PlaneGeometry(0.21, 0.28);
     this.level.pageSpots.slice(0, TOTAL_PAGES).forEach((spot, i) => {
       const tex = makePageTexture(seed, i);
@@ -150,7 +151,7 @@ export class Items {
       // Wall-thin gap between two rooms can put a page within range+cone
       // without it actually being visible — LOS keeps the prompt honest.
       if (d < 2.6 && to.normalize().dot(camDir) > 0.8 && this.hasLOS(camPos, p.mesh.position)) {
-        return { type: "page", index: i, label: "පිටුව ලබා ගන්න" };
+        return { type: "page", index: i, label: t(this.lang, "item.takePage") };
       }
     }
     for (let i = 0; i < this.waters.length; i++) {
@@ -159,15 +160,15 @@ export class Items {
       const to = this.vTo.subVectors(w.group.position, camPos);
       const d = to.length();
       if (d < 2.4 && to.normalize().dot(camDir) > 0.78 && this.hasLOS(camPos, w.group.position)) {
-        return { type: "water", index: i, label: "ඇල්මන්ඩ් වතුර පානය කරන්න" };
+        return { type: "water", index: i, label: t(this.lang, "item.drinkWater") };
       }
     }
     const toDoor = this.vTo.subVectors(this.level.exit.doorPos, camPos);
     const dd = toDoor.length();
     if (dd < 3 && toDoor.normalize().dot(camDir) > 0.7) {
       return this.allCollected
-        ? { type: "door", label: this.exitOpen ? "පලා යන්න" : "දොර තල්ලු කරන්න" }
-        : { type: "door", label: `අගුළු දමා ඇත — ${this.collected}/${TOTAL_PAGES} පිටු` };
+        ? { type: "door", label: t(this.lang, this.exitOpen ? "item.escape" : "item.pushDoor") }
+        : { type: "door", label: t(this.lang, "item.locked", { count: this.collected, total: TOTAL_PAGES }) };
     }
     return null;
   }
