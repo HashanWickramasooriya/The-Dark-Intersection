@@ -234,8 +234,21 @@ const wss = new WebSocketServer({
   server: httpServer,
   verifyClient: (info, cb) => {
     const allowed = isOriginAllowed(info.origin);
-    if (!allowed) log.warn(`rejected connection from disallowed origin: ${info.origin}`);
-    cb(allowed);
+    if (!allowed) {
+      // JSON.stringify surfaces stray/invisible characters (quotes, zero-
+      // width spaces, etc.) that a plain log line would hide — compare this
+      // exact string against ALLOWED_ORIGINS if a legitimate origin is
+      // still being rejected.
+      log.warn(`rejected connection — origin not in ALLOWED_ORIGINS: ${JSON.stringify(info.origin)}`);
+      // `ws`'s verifyClient defaults a false result to HTTP 401, which
+      // browsers report as an *authentication* failure ("HTTP
+      // Authentication failed; no valid credentials available") — this
+      // isn't an auth check, it's an origin policy check, so reject with
+      // the semantically correct 403 instead of the misleading default.
+      cb(false, 403, "Origin not allowed");
+      return;
+    }
+    cb(true);
   },
 });
 
