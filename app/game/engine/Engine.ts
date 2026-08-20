@@ -795,6 +795,14 @@ export class Engine {
   }
 
   private onScreech() {
+    // Multiplayer: `state === "chase"` is shared monster state (whoever it's
+    // actually hunting) — this callback fires on every client the instant
+    // chase begins ANYWHERE in the room (see RemoteMonster.setTarget's
+    // mirrored side-effect), but the scare stinger/fear spike must stay
+    // per-player. A chase happening on the other side of the map shouldn't
+    // jump-scare someone nowhere near it. Single-player has no `net`, so
+    // this check is always skipped there — behavior is unchanged.
+    if (this.net && this.entity.pos.distanceTo(this.player.pos) > 30) return;
     this.audio.screech();
     this.fearSpike = 1;
     this.glitch = Math.min(1, this.glitch + 0.8);
@@ -966,15 +974,36 @@ export class Engine {
       }
     }
     if (target) {
-      this.player.camera.position.set(target.root.position.x, EYE_HEIGHT, target.root.position.z);
-      this.player.camera.rotation.set(0, target.root.rotation.y, 0);
-      // Repositioning the camera alone isn't enough — updateFixtures()
-      // (the light-pool "light orchestra" that does most of the actual
-      // room lighting in this engine) and updateFearAndAudio() both key
-      // off player.pos, not the camera. Without this, the light pool stays
+      // Chase-cam offset BEHIND the target along their own facing direction
+      // — not colocated with their position. The camera used to sit exactly
+      // at target.root.position, i.e. inside the target's own body mesh; at
+      // zero distance that mostly shows the inside of their near-black mask
+      // material filling the frame, which is what actually produced the
+      // "black screen" (not just a lighting problem, though that was real
+      // too — see the player.pos note below). March backward from the
+      // target and stop just short of any wall instead of tunneling through
+      // one — same technique player.ts already uses to dim the flashlight
+      // near walls (solidAtWorld ray march), so this reuses an existing,
+      // already-tuned collision query rather than inventing a new one.
+      const yaw = target.root.rotation.y;
+      const fx = -Math.sin(yaw);
+      const fz = -Math.cos(yaw);
+      const tx = target.root.position.x;
+      const tz = target.root.position.z;
+      let dist = 0.6; // never closer than this — stay outside the target's own body radius
+      for (let d = 0.6; d <= 2.4; d += 0.2) {
+        if (this.level.solidAtWorld(tx - fx * d, tz - fz * d)) break;
+        dist = d;
+      }
+      this.player.camera.position.set(tx - fx * dist, target.root.position.y + EYE_HEIGHT + 0.25, tz - fz * dist);
+      this.player.camera.rotation.set(0.2, yaw, 0);
+      // Camera repositioning alone isn't enough — updateFixtures() (the
+      // light-pool "light orchestra" that does most of the actual room
+      // lighting in this engine) and updateFearAndAudio() both key off
+      // player.pos, not the camera. Without this, the light pool stays
       // parked at the death spot forever, so wherever the spectator camera
-      // actually looks stays essentially unlit — the reported black screen.
-      this.player.pos.set(target.root.position.x, 0, target.root.position.z);
+      // actually looks stays essentially unlit regardless of camera position.
+      this.player.pos.set(tx, 0, tz);
     }
   }
 
@@ -1152,7 +1181,14 @@ export class Engine {
       case "roam": entityFear = Math.max(0, 1 - eDist / 40) * 0.3; break;
       case "stalk": entityFear = 0.4 + Math.max(0, 1 - eDist / 30) * 0.3; break;
       case "search": entityFear = 0.45; break;
-      case "chase": entityFear = 0.95; break;
+      case "chase":
+        // Single-player: unchanged — chase only ever starts within a few
+        // meters (see entity.ts), so this was always effectively "near".
+        // Multiplayer: "chase" is shared state (whoever it's hunting), so
+        // scale by THIS client's own distance instead of assuming everyone
+        // in the room is the one being chased.
+        entityFear = this.net ? Math.max(0.35, Math.min(0.95, 1 - eDist / 45)) : 0.95;
+        break;
     }
     if (eDist < 8) entityFear = Math.max(entityFear, 0.8);
 
@@ -1175,7 +1211,10 @@ export class Engine {
         humProximity: Math.max(0, 1 - nearestLit / 11),
         entityDist: eDist,
         entityPan: isFinite(eDist) ? toEntity.dot(right) : 0,
-        chasing: this.entity.state === "chase",
+        // Same per-player reasoning as the entityFear "chase" case above —
+        // don't tell this client's audio "it's chasing you" when the actual
+        // chase (shared monster state) is happening nowhere near them.
+        chasing: this.entity.state === "chase" && (!this.net || eDist < 30),
       });
       this.audio.update(dt);
     }
