@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { Level, WALL_H } from "./level";
+import { SURVIVOR_COLORS } from "./survivorColors";
 
 export const EYE_HEIGHT = 1.62;
 const RADIUS = 0.32;
@@ -96,9 +97,9 @@ export class Player {
    * and there you are.
    */
   private buildBody() {
-    const jacket = new THREE.MeshStandardMaterial({ color: 0x2c3038, roughness: 0.96 });
-    const denim = new THREE.MeshStandardMaterial({ color: 0x232931, roughness: 0.97 });
-    const shoe = new THREE.MeshStandardMaterial({ color: 0x16161a, roughness: 0.55 });
+    const jacket = new THREE.MeshStandardMaterial({ color: SURVIVOR_COLORS.jacket, roughness: 0.93 });
+    const denim = new THREE.MeshStandardMaterial({ color: SURVIVOR_COLORS.pants, roughness: 0.95 });
+    const shoe = new THREE.MeshStandardMaterial({ color: SURVIVOR_COLORS.boot, roughness: 0.6 });
 
     // Torso (capsule) + hips, set back behind the eye line so the chest and
     // striding legs both read when looking down.
@@ -150,9 +151,12 @@ export class Player {
    * so the torch follows the view with hand-held weight.
    */
   private buildHands() {
-    const skin = new THREE.MeshStandardMaterial({ color: 0xeee4d4, roughness: 0.62 });
+    // Named `skin` for the hand-geometry variable below (finger/palm meshes)
+    // — colored as a black glove to match the survivor's black gloves,
+    // not literal skin.
+    const skin = new THREE.MeshStandardMaterial({ color: SURVIVOR_COLORS.glove, roughness: 0.8 });
     const black = new THREE.MeshStandardMaterial({ color: 0x101013, roughness: 0.42, metalness: 0.3 });
-    const cuffMat = new THREE.MeshStandardMaterial({ color: 0x2c3038, roughness: 0.95 });
+    const cuffMat = new THREE.MeshStandardMaterial({ color: SURVIVOR_COLORS.jacket, roughness: 0.93 });
 
     this.handTorch = new THREE.Group();
     this.handTorch.position.set(-0.21, -0.235, -0.35);

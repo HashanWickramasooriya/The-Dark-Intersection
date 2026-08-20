@@ -165,6 +165,10 @@ export class Engine {
   private netTransformTimer = 0;
   private netMonsterTimer = 0;
   private lastMonsterSample: { pos: Vec3; yaw: number; state: string } | null = null;
+  /** last transform actually SENT — lets broadcastLocalTransform skip
+   * redundant sends when nothing meaningful changed since last tick. */
+  private lastSentTransform: { x: number; z: number; yaw: number; sprinting: boolean; sneaking: boolean; flashlightOn: boolean; alive: boolean } | null = null;
+  private sinceLastTransformSend = 0;
 
   constructor(
     private container: HTMLElement,
@@ -727,8 +731,42 @@ export class Engine {
   private broadcastLocalTransform(dt: number) {
     if (!this.net) return;
     this.netTransformTimer -= dt;
+    this.sinceLastTransformSend += dt;
     if (this.netTransformTimer > 0) return;
-    this.netTransformTimer = 1 / 15;
+    this.netTransformTimer = 1 / 15; // still evaluated at 15Hz — this only decides whether THIS tick's sample is worth sending
+
+    const alive = this.state === "playing";
+    const last = this.lastSentTransform;
+    // Redundant-send guard: an idle player standing still would otherwise
+    // still push an identical transform 15x/sec forever. Skip when nothing
+    // meaningfully changed, with a heartbeat ceiling so the room never goes
+    // fully silent for this player for more than half a second.
+    if (last && this.sinceLastTransformSend < 0.5) {
+      const dx = this.player.pos.x - last.x;
+      const dz = this.player.pos.z - last.z;
+      let yawDiff = this.player.yaw - last.yaw;
+      while (yawDiff > Math.PI) yawDiff -= Math.PI * 2;
+      while (yawDiff < -Math.PI) yawDiff += Math.PI * 2;
+      const unchanged =
+        dx * dx + dz * dz < 0.0004 && // < ~2cm moved
+        Math.abs(yawDiff) < 0.02 && // < ~1.1°
+        this.player.sprinting === last.sprinting &&
+        this.player.sneaking === last.sneaking &&
+        this.player.flashlightOn === last.flashlightOn &&
+        alive === last.alive;
+      if (unchanged) return;
+    }
+    this.sinceLastTransformSend = 0;
+    this.lastSentTransform = {
+      x: this.player.pos.x,
+      z: this.player.pos.z,
+      yaw: this.player.yaw,
+      sprinting: this.player.sprinting,
+      sneaking: this.player.sneaking,
+      flashlightOn: this.player.flashlightOn,
+      alive,
+    };
+
     this.net.client.send({
       type: "transform",
       pos: { x: this.player.pos.x, y: this.player.pos.y, z: this.player.pos.z },
@@ -737,7 +775,7 @@ export class Engine {
       sprinting: this.player.sprinting,
       sneaking: this.player.sneaking,
       flashlightOn: this.player.flashlightOn,
-      alive: this.state === "playing",
+      alive,
       seq: this.netTransformSeq++,
     });
   }
