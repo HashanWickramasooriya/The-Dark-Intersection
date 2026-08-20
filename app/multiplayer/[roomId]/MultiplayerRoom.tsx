@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Engine, EngineCallbacks, EngineNetContext, GameState, HudState, MinimapState } from "../../game/engine/Engine";
 import Minimap from "../../game/Minimap";
 import { RoomClient } from "../../game/net/RoomClient";
+import { takePendingRoom } from "../../game/net/pendingRoom";
 import type { PlayerInfo, ServerMessage } from "../../game/net/protocol";
 
 const GameCanvas = dynamic(() => import("../../game/GameCanvas"), { ssr: false });
@@ -101,11 +102,14 @@ export default function MultiplayerRoom({ roomId }: { roomId: string }) {
     playersRef.current = players;
   }, [players]);
 
-  // Connect + join once on mount.
+  // Connect + join once on mount — unless a room we just created on the
+  // previous screen is waiting for us, in which case reuse that exact
+  // live connection instead of opening a second one (see pendingRoom.ts).
   useEffect(() => {
-    const client = new RoomClient();
-    clientRef.current = client;
     let cancelled = false;
+    const handoff = takePendingRoom(roomId);
+    const client = handoff?.client ?? new RoomClient();
+    clientRef.current = client;
 
     const name = typeof window !== "undefined" ? sessionStorage.getItem("mp_name") ?? "" : "";
 
@@ -159,15 +163,33 @@ export default function MultiplayerRoom({ roomId }: { roomId: string }) {
     };
 
     const unsub = client.on(onMessage);
-    client
-      .connect()
-      .then(() => client.send({ type: "join_room", roomId, name }))
-      .catch(() => {
-        if (!cancelled) {
-          setErrorMsg("multiplayer server එකට සම්බන්ධ විය නොහැක");
-          setPhase("join_error");
-        }
+    if (handoff) {
+      // Already connected, and this connection already IS the host of this
+      // room (from the create flow) — applying that known state directly
+      // instead of reconnecting avoids opening a second socket (which,
+      // besides being redundant, would race a real join_room against a
+      // room that at that instant has no server-side record of "us" as a
+      // second identity) and skips waiting on a join_ok that isn't coming.
+      // Deferred a tick (matches the async .connect().then() branch below)
+      // rather than calling setState synchronously in the effect body.
+      Promise.resolve().then(() => {
+        if (cancelled) return;
+        setLocalId(handoff.playerId);
+        setPlayers(handoff.players);
+        setHostId(handoff.players.find((p) => p.isHost)?.id ?? handoff.playerId);
+        setPhase("lobby");
       });
+    } else {
+      client
+        .connect()
+        .then(() => client.send({ type: "join_room", roomId, name }))
+        .catch(() => {
+          if (!cancelled) {
+            setErrorMsg("multiplayer server එකට සම්බන්ධ විය නොහැක");
+            setPhase("join_error");
+          }
+        });
+    }
 
     return () => {
       cancelled = true;
@@ -175,7 +197,6 @@ export default function MultiplayerRoom({ roomId }: { roomId: string }) {
       client.send({ type: "leave_room" });
       client.close();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one connection for the lifetime of this page
   }, [roomId]);
 
   const inviteUrl = useMemo(() => {

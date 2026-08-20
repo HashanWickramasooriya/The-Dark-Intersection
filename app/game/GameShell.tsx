@@ -13,6 +13,7 @@ import {
 import type { Engine, EngineCallbacks, GameState, HudState, MinimapState } from "./engine/Engine";
 import Minimap from "./Minimap";
 import { RoomClient } from "./net/RoomClient";
+import { setPendingRoom } from "./net/pendingRoom";
 
 const GameCanvas = dynamic(() => import("./GameCanvas"), { ssr: false });
 
@@ -131,12 +132,28 @@ export default function GameShell() {
       setMpBusy(false);
       return;
     }
+    let createdRoomId: string | null = null;
     const unsub = client.on((msg) => {
       if (msg.type === "room_created") {
+        createdRoomId = msg.roomId;
+      } else if (msg.type === "join_ok" && createdRoomId) {
+        // Server sends room_created then join_ok back-to-back for a create.
+        // Hand off this SAME live connection to the room screen instead of
+        // closing it — closing it here would leave the just-created room
+        // with zero players, and the server deletes empty rooms instantly
+        // (see server/index.ts's handleLeave/RoomManager.gc), which is why
+        // the next page's fresh join attempt used to fail with "room not
+        // found" every time.
         unsub();
         sessionStorage.setItem("mp_name", mpName.trim());
-        client.close();
-        router.push(`/multiplayer/${msg.roomId}`);
+        setPendingRoom({
+          roomId: createdRoomId,
+          client,
+          playerId: msg.playerId,
+          isHost: msg.isHost,
+          players: msg.players,
+        });
+        router.push(`/multiplayer/${createdRoomId}`);
       }
     });
     client.send({ type: "create_room", name: mpName.trim() });
