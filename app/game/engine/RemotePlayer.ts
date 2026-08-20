@@ -8,38 +8,57 @@ import * as THREE from "three";
  * distance checks, the spectator camera) — nothing here changes what those
  * mean, only what's drawn.
  *
- * An articulated low-poly human rig (head/neck/torso/two arms/two legs),
- * built once from a small SHARED pool of geometries + materials (module
- * scope, reused across every RemotePlayer instance — up to 3 concurrently
- * in a 4-player room) so per-player cost stays a handful of cheap Mesh
- * wrapper objects, not new GPU geometry/material allocations. No lights, no
- * shadow casting — matches the existing multiplayer perf constraints.
+ * A low/moderate-poly human survivor rig — tapered chest/waist/hips (not a
+ * uniform cylinder), a non-spherical hooded head with a separate mask/visor
+ * piece, distinct jacket/pants/boot/glove/belt/backpack materials — built
+ * from a small SHARED pool of geometries + materials (module scope, reused
+ * across every RemotePlayer instance, up to 3 concurrently in a 4-player
+ * room) so per-player cost stays cheap Mesh wrapper objects, not new GPU
+ * geometry/material allocations. No lights, no shadow casting.
  */
 
-const SEG = 7; // low-poly radial segment count, matching entity.ts's own convention
+const SEG = 8; // radial segment count for limbs/torso — moderate, not primitive-looking, not expensive
 
-/** Muted survivor-suit palette — cycled per player via a name hash so two
- * players don't look identical, without a real customization system. */
-const SUIT_COLORS = [0x2c3038, 0x33301e, 0x1f2e2c, 0x35241f];
+/** Restrained, worn, Backrooms-appropriate jacket palette — cycled per
+ * player via a name hash so two players don't look identical. */
+const JACKET_COLORS = [
+  0x8a7f66, // dirty beige
+  0x585c5e, // muted gray
+  0x4a4f37, // dark olive
+  0x6b4f38, // faded brown
+  0x33363a, // charcoal
+  0x3f4f3f, // desaturated green
+];
 
 interface SharedAssets {
-  headGeo: THREE.SphereGeometry;
+  hoodGeo: THREE.SphereGeometry;
+  maskGeo: THREE.BoxGeometry;
+  visorGeo: THREE.BoxGeometry;
   neckGeo: THREE.CylinderGeometry;
-  torsoGeo: THREE.CapsuleGeometry;
+  chestGeo: THREE.CylinderGeometry;
+  waistGeo: THREE.CylinderGeometry;
   hipsGeo: THREE.CylinderGeometry;
-  thighGeo: THREE.CylinderGeometry;
-  shinGeo: THREE.CylinderGeometry;
-  footGeo: THREE.BoxGeometry;
+  beltGeo: THREE.TorusGeometry;
+  shoulderGeo: THREE.SphereGeometry;
   upperArmGeo: THREE.CylinderGeometry;
   forearmGeo: THREE.CylinderGeometry;
   handGeo: THREE.SphereGeometry;
+  thighGeo: THREE.CylinderGeometry;
+  shinGeo: THREE.CylinderGeometry;
+  bootGeo: THREE.BoxGeometry;
+  bootCuffGeo: THREE.CylinderGeometry;
   backpackGeo: THREE.BoxGeometry;
-  visorGeo: THREE.BoxGeometry;
+  strapGeo: THREE.BoxGeometry;
+
   hoodMat: THREE.MeshStandardMaterial;
-  gloveMat: THREE.MeshStandardMaterial;
+  maskMat: THREE.MeshStandardMaterial;
   visorMat: THREE.MeshStandardMaterial;
-  accentMat: THREE.MeshStandardMaterial;
-  suitMats: THREE.MeshStandardMaterial[];
+  gloveMat: THREE.MeshStandardMaterial;
+  bootMat: THREE.MeshStandardMaterial;
+  beltMat: THREE.MeshStandardMaterial;
+  backpackMat: THREE.MeshStandardMaterial;
+  /** [jacket, pants] per palette entry — pants a darker desaturated variant of the jacket color. */
+  suitMats: { jacket: THREE.MeshStandardMaterial; pants: THREE.MeshStandardMaterial }[];
 }
 
 let shared: SharedAssets | null = null;
@@ -47,24 +66,50 @@ let shared: SharedAssets | null = null;
 /** Built exactly once, on the first RemotePlayer ever constructed. */
 function getSharedAssets(): SharedAssets {
   if (shared) return shared;
+
+  const suitMats = JACKET_COLORS.map((hex) => {
+    const jacketColor = new THREE.Color(hex);
+    const pantsColor = jacketColor.clone().multiplyScalar(0.62);
+    return {
+      jacket: new THREE.MeshStandardMaterial({ color: jacketColor, roughness: 0.93 }),
+      pants: new THREE.MeshStandardMaterial({ color: pantsColor, roughness: 0.95 }),
+    };
+  });
+
   shared = {
-    headGeo: new THREE.SphereGeometry(0.135, 10, 8),
-    neckGeo: new THREE.CylinderGeometry(0.05, 0.058, 0.1, SEG),
-    torsoGeo: new THREE.CapsuleGeometry(0.155, 0.42, 4, SEG),
-    hipsGeo: new THREE.CylinderGeometry(0.14, 0.15, 0.2, SEG),
-    thighGeo: new THREE.CylinderGeometry(0.075, 0.065, 0.42, SEG),
-    shinGeo: new THREE.CylinderGeometry(0.058, 0.05, 0.4, SEG),
-    footGeo: new THREE.BoxGeometry(0.1, 0.09, 0.26),
-    upperArmGeo: new THREE.CylinderGeometry(0.055, 0.05, 0.32, SEG),
-    forearmGeo: new THREE.CylinderGeometry(0.046, 0.042, 0.3, SEG),
-    handGeo: new THREE.SphereGeometry(0.05, 7, 6),
-    backpackGeo: new THREE.BoxGeometry(0.22, 0.32, 0.13),
-    visorGeo: new THREE.BoxGeometry(0.15, 0.07, 0.06),
-    hoodMat: new THREE.MeshStandardMaterial({ color: 0x17171a, roughness: 0.95 }),
-    gloveMat: new THREE.MeshStandardMaterial({ color: 0x0e0e10, roughness: 0.85 }),
-    visorMat: new THREE.MeshStandardMaterial({ color: 0x05070a, roughness: 0.4, metalness: 0.2 }),
-    accentMat: new THREE.MeshStandardMaterial({ color: 0x1c1a16, roughness: 0.9 }),
-    suitMats: SUIT_COLORS.map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.92 })),
+    // Hood: a non-uniform-scaled sphere reads as a rounded head/hood
+    // silhouette rather than a ball — flattened front-to-back, slightly
+    // taller than wide, like fabric drawn over a skull.
+    hoodGeo: new THREE.SphereGeometry(0.135, 12, 9).scale(0.94, 1.12, 0.86),
+    maskGeo: new THREE.BoxGeometry(0.15, 0.1, 0.08),
+    visorGeo: new THREE.BoxGeometry(0.16, 0.035, 0.05),
+    neckGeo: new THREE.CylinderGeometry(0.052, 0.062, 0.12, SEG),
+    // Tapered torso in three stacked pieces (chest wide -> waist narrow ->
+    // hips flare slightly) instead of one uniform capsule — this is what
+    // actually produces a human silhouette instead of a cylinder.
+    chestGeo: new THREE.CylinderGeometry(0.155, 0.185, 0.3, SEG),
+    waistGeo: new THREE.CylinderGeometry(0.135, 0.155, 0.19, SEG),
+    hipsGeo: new THREE.CylinderGeometry(0.15, 0.145, 0.14, SEG),
+    beltGeo: new THREE.TorusGeometry(0.148, 0.018, 5, 14),
+    shoulderGeo: new THREE.SphereGeometry(0.07, 8, 6),
+    upperArmGeo: new THREE.CylinderGeometry(0.052, 0.06, 0.29, SEG),
+    forearmGeo: new THREE.CylinderGeometry(0.042, 0.05, 0.27, SEG),
+    handGeo: new THREE.SphereGeometry(0.052, 7, 6),
+    thighGeo: new THREE.CylinderGeometry(0.088, 0.105, 0.44, SEG),
+    shinGeo: new THREE.CylinderGeometry(0.062, 0.08, 0.37, SEG),
+    bootGeo: new THREE.BoxGeometry(0.105, 0.11, 0.27),
+    bootCuffGeo: new THREE.CylinderGeometry(0.075, 0.068, 0.06, SEG),
+    backpackGeo: new THREE.BoxGeometry(0.23, 0.32, 0.14),
+    strapGeo: new THREE.BoxGeometry(0.035, 0.32, 0.02),
+
+    hoodMat: new THREE.MeshStandardMaterial({ color: 0x1c1d20, roughness: 0.92 }),
+    maskMat: new THREE.MeshStandardMaterial({ color: 0x0c0d0f, roughness: 0.4, metalness: 0.15 }),
+    visorMat: new THREE.MeshStandardMaterial({ color: 0x05070a, roughness: 0.25, metalness: 0.3 }),
+    gloveMat: new THREE.MeshStandardMaterial({ color: 0x121213, roughness: 0.8 }),
+    bootMat: new THREE.MeshStandardMaterial({ color: 0x0e0e0f, roughness: 0.6 }),
+    beltMat: new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 0.85 }),
+    backpackMat: new THREE.MeshStandardMaterial({ color: 0x22261f, roughness: 0.88 }),
+    suitMats,
   };
   return shared;
 }
@@ -86,9 +131,13 @@ export class RemotePlayer {
   private legR!: THREE.Group;
   private kneeL!: THREE.Group;
   private kneeR!: THREE.Group;
-  private armL!: THREE.Group;
-  private armR!: THREE.Group;
+  private shoulderL!: THREE.Group;
+  private shoulderR!: THREE.Group;
+  private elbowL!: THREE.Group;
+  private elbowR!: THREE.Group;
   private headGroup!: THREE.Group;
+  private chest!: THREE.Mesh;
+  private hips!: THREE.Group;
 
   private targetPos = new THREE.Vector3();
   private targetYaw = 0;
@@ -104,83 +153,109 @@ export class RemotePlayer {
 
   constructor(name: string) {
     const a = getSharedAssets();
-    const suitMat = a.suitMats[hashName(name) % a.suitMats.length];
+    const h = hashName(name);
+    const suit = a.suitMats[h % a.suitMats.length];
     const hasBackpack = hashName(name + "b") % 2 === 0;
-    const hasVisor = hashName(name + "v") % 2 === 0;
 
     this.root.add(this.visual);
 
-    const HIP_Y = 0.86;
-    const hips = new THREE.Group();
-    hips.position.y = HIP_Y;
-    this.visual.add(hips);
+    const HIP_Y = 0.9;
+    this.hips = new THREE.Group();
+    this.hips.position.y = HIP_Y;
+    this.visual.add(this.hips);
 
-    const hipsMesh = new THREE.Mesh(a.hipsGeo, suitMat);
-    hips.add(hipsMesh);
+    const hipsMesh = new THREE.Mesh(a.hipsGeo, suit.pants);
+    hipsMesh.position.y = 0.07;
+    this.hips.add(hipsMesh);
 
-    const torso = new THREE.Mesh(a.torsoGeo, suitMat);
-    torso.position.y = 0.36;
-    hips.add(torso);
+    const belt = new THREE.Mesh(a.beltGeo, a.beltMat);
+    belt.position.y = 0.13;
+    belt.rotation.x = Math.PI / 2;
+    this.hips.add(belt);
+
+    const waist = new THREE.Mesh(a.waistGeo, suit.jacket);
+    waist.position.y = 0.235;
+    this.hips.add(waist);
+
+    this.chest = new THREE.Mesh(a.chestGeo, suit.jacket);
+    this.chest.position.y = 0.48;
+    this.hips.add(this.chest);
 
     if (hasBackpack) {
-      const pack = new THREE.Mesh(a.backpackGeo, a.accentMat);
-      pack.position.set(0, 0.34, -0.16);
-      hips.add(pack);
+      const pack = new THREE.Mesh(a.backpackGeo, a.backpackMat);
+      pack.position.set(0, 0.5, -0.19);
+      this.hips.add(pack);
+      for (const side of [-1, 1] as const) {
+        const strap = new THREE.Mesh(a.strapGeo, a.beltMat);
+        strap.position.set(0.08 * side, 0.58, 0.02);
+        strap.rotation.x = 0.15;
+        this.hips.add(strap);
+      }
     }
 
     const neck = new THREE.Mesh(a.neckGeo, a.hoodMat);
-    neck.position.y = 0.64;
-    hips.add(neck);
+    neck.position.y = 0.68;
+    this.hips.add(neck);
 
     this.headGroup = new THREE.Group();
-    this.headGroup.position.y = 0.76;
-    const head = new THREE.Mesh(a.headGeo, a.hoodMat);
-    this.headGroup.add(head);
-    if (hasVisor) {
-      const visor = new THREE.Mesh(a.visorGeo, a.visorMat);
-      visor.position.set(0, -0.01, 0.11);
-      this.headGroup.add(visor);
-    }
-    hips.add(this.headGroup);
+    this.headGroup.position.y = 0.82;
+    const hood = new THREE.Mesh(a.hoodGeo, a.hoodMat);
+    this.headGroup.add(hood);
+    const mask = new THREE.Mesh(a.maskGeo, a.maskMat);
+    mask.position.set(0, -0.03, 0.1);
+    this.headGroup.add(mask);
+    const visor = new THREE.Mesh(a.visorGeo, a.visorMat);
+    visor.position.set(0, 0.04, 0.135);
+    this.headGroup.add(visor);
+    this.hips.add(this.headGroup);
+
+    const SHOULDER_Y = 0.6;
+    const makeArm = (side: 1 | -1) => {
+      const shoulder = new THREE.Group();
+      shoulder.position.set(0.19 * side, SHOULDER_Y, 0);
+      const cap = new THREE.Mesh(a.shoulderGeo, suit.jacket);
+      shoulder.add(cap);
+
+      const upper = new THREE.Mesh(a.upperArmGeo, suit.jacket);
+      upper.position.y = -0.145;
+      shoulder.add(upper);
+
+      const elbow = new THREE.Group();
+      elbow.position.y = -0.29;
+      const fore = new THREE.Mesh(a.forearmGeo, suit.jacket);
+      fore.position.y = -0.135;
+      const hand = new THREE.Mesh(a.handGeo, a.gloveMat);
+      hand.position.y = -0.29;
+      hand.scale.set(0.85, 1.05, 0.75);
+      elbow.add(fore, hand);
+      shoulder.add(elbow);
+
+      this.hips.add(shoulder);
+      return { shoulder, elbow };
+    };
+    ({ shoulder: this.shoulderL, elbow: this.elbowL } = makeArm(-1));
+    ({ shoulder: this.shoulderR, elbow: this.elbowR } = makeArm(1));
 
     const makeLeg = (side: 1 | -1) => {
       const leg = new THREE.Group();
-      leg.position.set(0.09 * side, 0, 0);
-      const thigh = new THREE.Mesh(a.thighGeo, suitMat);
-      thigh.position.y = -0.21;
+      leg.position.set(0.1 * side, 0, 0);
+      const thigh = new THREE.Mesh(a.thighGeo, suit.pants);
+      thigh.position.y = -0.22;
       const knee = new THREE.Group();
-      knee.position.y = -0.42;
-      const shin = new THREE.Mesh(a.shinGeo, suitMat);
-      shin.position.y = -0.2;
-      const foot = new THREE.Mesh(a.footGeo, a.gloveMat);
-      foot.position.set(0, -0.42, 0.05);
-      knee.add(shin, foot);
+      knee.position.y = -0.44;
+      const shin = new THREE.Mesh(a.shinGeo, suit.pants);
+      shin.position.y = -0.185;
+      const cuff = new THREE.Mesh(a.bootCuffGeo, a.bootMat);
+      cuff.position.y = -0.36;
+      const boot = new THREE.Mesh(a.bootGeo, a.bootMat);
+      boot.position.set(0, -0.41, 0.045);
+      knee.add(shin, cuff, boot);
       leg.add(thigh, knee);
-      hips.add(leg);
+      this.hips.add(leg);
       return { leg, knee };
     };
     ({ leg: this.legL, knee: this.kneeL } = makeLeg(-1));
     ({ leg: this.legR, knee: this.kneeR } = makeLeg(1));
-
-    const makeArm = (side: 1 | -1) => {
-      const arm = new THREE.Group();
-      arm.position.set(0.2 * side, 0.58, 0);
-      const upper = new THREE.Mesh(a.upperArmGeo, suitMat);
-      upper.position.y = -0.16;
-      const elbow = new THREE.Group();
-      elbow.position.y = -0.32;
-      const fore = new THREE.Mesh(a.forearmGeo, suitMat);
-      fore.position.y = -0.15;
-      const hand = new THREE.Mesh(a.handGeo, a.gloveMat);
-      hand.position.y = -0.32;
-      hand.scale.set(0.85, 1.1, 0.75);
-      elbow.add(fore, hand);
-      arm.add(upper, elbow);
-      hips.add(arm);
-      return arm;
-    };
-    this.armL = makeArm(-1);
-    this.armR = makeArm(1);
   }
 
   addTo(scene: THREE.Scene) {
@@ -229,30 +304,56 @@ export class RemotePlayer {
   }
 
   private animate(dt: number, speed: number) {
+    this.idleT += dt;
+
     // Crouch dip / death tilt live on `visual`, never on `root`.
-    const targetCrouchY = this.alive && this.sneaking ? -0.12 : 0;
+    const targetCrouchY = this.alive && this.sneaking ? -0.14 : 0;
     this.visual.position.y += (targetCrouchY - this.visual.position.y) * Math.min(1, dt * 6);
     const targetTilt = this.alive ? 0 : Math.PI * 0.42;
     this.visual.rotation.x += (targetTilt - this.visual.rotation.x) * Math.min(1, dt * 5);
+    if (!this.alive) return; // no walk/idle motion once down
 
-    const moving = this.alive && speed > 0.15;
-    if (moving) {
-      this.walkPhase += dt * (2.3 + Math.min(speed, 6) * 1.7);
-    }
-    const amp = moving ? Math.min(0.85, 0.18 + speed * 0.18) : 0;
+    const sneaking = this.sneaking;
+    const running = speed > 3.6;
+    const moving = speed > 0.15;
     const k = Math.min(1, dt * 8);
+
+    if (moving) {
+      const cadence = sneaking ? 1.7 : running ? 3.1 : 2.3;
+      this.walkPhase += dt * (cadence + Math.min(speed, 6) * (running ? 1.9 : 1.5));
+    }
+    const baseAmp = sneaking ? 0.32 : running ? 0.95 : 0.62;
+    const amp = moving ? Math.min(baseAmp, 0.12 + speed * (running ? 0.22 : 0.16)) : 0;
     const legSwing = Math.sin(this.walkPhase) * amp;
+
     this.legL.rotation.x += (legSwing - this.legL.rotation.x) * k;
     this.legR.rotation.x += (-legSwing - this.legR.rotation.x) * k;
-    this.kneeL.rotation.x += (Math.max(0, -Math.cos(this.walkPhase)) * amp * 0.9 - this.kneeL.rotation.x) * k;
-    this.kneeR.rotation.x += (Math.max(0, Math.cos(this.walkPhase)) * amp * 0.9 - this.kneeR.rotation.x) * k;
-    this.armL.rotation.x += (-legSwing * 0.6 - this.armL.rotation.x) * k;
-    this.armR.rotation.x += (legSwing * 0.6 - this.armR.rotation.x) * k;
+    this.kneeL.rotation.x += (Math.max(0, -Math.cos(this.walkPhase)) * amp * (sneaking ? 1.1 : 0.85) - this.kneeL.rotation.x) * k;
+    this.kneeR.rotation.x += (Math.max(0, Math.cos(this.walkPhase)) * amp * (sneaking ? 1.1 : 0.85) - this.kneeR.rotation.x) * k;
 
-    // Subtle idle head sway when standing still, so alive-but-idle players
-    // don't read as frozen statues.
-    this.idleT += dt;
-    if (!moving && this.alive) {
+    const armRatio = running ? 0.85 : 0.55; // arms swing opposite the legs, at a fraction of leg amplitude
+    const armForward = sneaking ? -0.35 : 0; // arms held slightly forward while sneaking
+    this.shoulderL.rotation.x += (-legSwing * armRatio + armForward - this.shoulderL.rotation.x) * k;
+    this.shoulderR.rotation.x += (legSwing * armRatio + armForward - this.shoulderR.rotation.x) * k;
+    const elbowBend = 0.25 + (running ? 0.25 : 0);
+    this.elbowL.rotation.x += (elbowBend - this.elbowL.rotation.x) * k;
+    this.elbowR.rotation.x += (elbowBend - this.elbowR.rotation.x) * k;
+
+    // Torso counter-twist + vertical bob during movement; forward lean when running.
+    const twist = -legSwing * 0.18;
+    this.chest.rotation.y += (twist - this.chest.rotation.y) * k;
+    const lean = running ? 0.16 : sneaking ? 0.1 : 0;
+    this.chest.rotation.x += (lean - this.chest.rotation.x) * k;
+    const bob = moving ? Math.abs(Math.sin(this.walkPhase)) * (running ? 0.045 : 0.02) : 0;
+    this.hips.position.y = 0.9 + bob;
+
+    // Idle breathing + subtle shoulder/head motion when standing still.
+    if (!moving) {
+      const breathe = Math.sin(this.idleT * 1.3) * 0.012;
+      this.chest.scale.y = 1 + breathe;
+      this.chest.scale.x = 1 + breathe * 0.4;
+      this.shoulderL.rotation.z = Math.sin(this.idleT * 0.9) * 0.03 - 0.03;
+      this.shoulderR.rotation.z = Math.sin(this.idleT * 0.9 + Math.PI) * 0.03 + 0.03;
       this.headGroup.rotation.y = Math.sin(this.idleT * 0.5) * 0.12;
     }
   }
