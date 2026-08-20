@@ -39,6 +39,7 @@ export type ClientMessage =
   | ({ type: "transform" } & TransformPayload)
   | { type: "page_collect_request"; index: number }
   | { type: "monster_transform"; pos: Vec3; yaw: number; state: string; seq: number }
+  | { type: "player_won" }
   | { type: "ping" };
 
 export type ServerMessage =
@@ -67,5 +68,5 @@ export type ServerMessage =
   | { type: "player_left"; playerId: string }
   | { type: "monster_transform"; pos: Vec3; yaw: number; state: string; seq: number }
   | { type: "monster_authority_changed"; playerId: string }
-  | { type: "game_over" }
+  | { type: "game_over"; winnerId: string | null }
   | { type: "pong" };

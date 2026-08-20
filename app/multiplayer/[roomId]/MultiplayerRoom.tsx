@@ -23,14 +23,23 @@ const INITIAL_HUD: HudState = {
   mapCheat: false,
 };
 
-type Phase = "connecting" | "join_error" | "lobby" | "playing";
+type Phase = "name_entry" | "connecting" | "join_error" | "lobby" | "playing";
 
 export default function MultiplayerRoom({ roomId }: { roomId: string }) {
   const router = useRouter();
   const clientRef = useRef<RoomClient | null>(null);
   const engineRef = useRef<Engine | null>(null);
 
-  const [phase, setPhase] = useState<Phase>("connecting");
+  // GameShell's create/join-by-code flows already collect a name and set
+  // this flag before navigating here — only a direct invite link (no flag
+  // set yet) needs its own name-entry step. A pending room handoff (create
+  // flow) always carries this flag too, so it's never skipped for that path.
+  const [nameConfirmed, setNameConfirmed] = useState(
+    () => typeof window !== "undefined" && sessionStorage.getItem("mp_name_set") === "1",
+  );
+  const [nameInput, setNameInput] = useState("");
+
+  const [phase, setPhase] = useState<Phase>(nameConfirmed ? "connecting" : "name_entry");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [players, setPlayers] = useState<PlayerInfo[]>([]);
   const [hostId, setHostId] = useState<string>("");
@@ -38,6 +47,9 @@ export default function MultiplayerRoom({ roomId }: { roomId: string }) {
   const [net, setNet] = useState<EngineNetContext | null>(null);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  /** Whole-room match result from the server's game_over broadcast — null
+   * until the match ends, so we know whether to offer "return to lobby". */
+  const [matchResult, setMatchResult] = useState<{ winnerId: string | null } | null>(null);
 
   const [gameState, setGameState] = useState<GameState>("idle");
   const [hud, setHud] = useState<HudState>(INITIAL_HUD);
@@ -52,6 +64,7 @@ export default function MultiplayerRoom({ roomId }: { roomId: string }) {
 
   const callbacksRef = useRef<EngineCallbacks>({
     onState: (s) => setGameState(s),
+    onGameOver: (winnerId) => setMatchResult({ winnerId }),
     onHud: (h) => {
       setHud(h);
       const kind = h.objective.split("—")[0].trim();
@@ -102,10 +115,13 @@ export default function MultiplayerRoom({ roomId }: { roomId: string }) {
     playersRef.current = players;
   }, [players]);
 
-  // Connect + join once on mount — unless a room we just created on the
-  // previous screen is waiting for us, in which case reuse that exact
-  // live connection instead of opening a second one (see pendingRoom.ts).
+  // Connect + join once the player's name is known — unless a room we just
+  // created on the previous screen is waiting for us, in which case reuse
+  // that exact live connection instead of opening a second one (see
+  // pendingRoom.ts). Waits on nameConfirmed so a direct invite-link visitor
+  // (no name collected yet) doesn't get auto-joined before entering one.
   useEffect(() => {
+    if (!nameConfirmed) return;
     let cancelled = false;
     const handoff = takePendingRoom(roomId);
     const client = handoff?.client ?? new RoomClient();
@@ -197,7 +213,7 @@ export default function MultiplayerRoom({ roomId }: { roomId: string }) {
       client.send({ type: "leave_room" });
       client.close();
     };
-  }, [roomId]);
+  }, [roomId, nameConfirmed]);
 
   const inviteUrl = useMemo(() => {
     if (typeof window === "undefined") return "";
@@ -221,8 +237,51 @@ export default function MultiplayerRoom({ roomId }: { roomId: string }) {
     clientRef.current?.close();
     router.push("/");
   };
+  /** Same validation rule GameShell's name field already uses (24 chars, trimmed on submit). */
+  const confirmName = () => {
+    sessionStorage.setItem("mp_name", nameInput.trim());
+    sessionStorage.setItem("mp_name_set", "1");
+    setPhase("connecting");
+    setNameConfirmed(true);
+  };
+  /** After a match ends: tear down this run's Engine and go back to the
+   * SAME room's lobby — the RoomClient connection is never touched, so the
+   * room/player list carries over exactly as the server already has it. */
+  const returnToLobby = () => {
+    engineRef.current?.dispose();
+    engineRef.current = null;
+    setNet(null);
+    setMatchResult(null);
+    setGameState("idle");
+    setPhase("lobby");
+  };
 
   /* ------------------------------ render ------------------------------ */
+
+  if (phase === "name_entry") {
+    return (
+      <Screen>
+        <div className="flicker-slow font-sinhala text-[11px] tracking-[0.3em] text-amber-200/40">
+          බහු ක්‍රීඩක කාමරය — {roomId}
+        </div>
+        <h1 className="vhs-title font-sinhala mt-2 text-2xl tracking-[0.1em] text-amber-50/95">ඔබගේ නම</h1>
+        <input
+          value={nameInput}
+          onChange={(e) => setNameInput(e.target.value.slice(0, 24))}
+          onKeyDown={(e) => e.key === "Enter" && confirmName()}
+          placeholder="ක්‍රීඩකයා"
+          autoFocus
+          className="font-sinhala mt-6 w-full max-w-xs border border-amber-100/30 bg-black/40 px-4 py-2.5 text-center text-sm tracking-wide text-amber-100/90 outline-none placeholder:text-amber-100/25 focus:border-amber-100/70"
+        />
+        <button
+          onClick={confirmName}
+          className="font-sinhala mt-6 bg-amber-100/90 px-10 py-3 text-sm tracking-[0.15em] text-black transition-all hover:bg-amber-50"
+        >
+          කාමරයට සම්බන්ධ වන්න
+        </button>
+      </Screen>
+    );
+  }
 
   if (phase === "connecting") {
     return (
@@ -381,6 +440,24 @@ export default function MultiplayerRoom({ roomId }: { roomId: string }) {
         </div>
       )}
 
+      {matchResult && (gameState === "playing" || gameState === "dying") && (
+        // The match ended (someone else escaped, or everyone else died)
+        // while this player was still actively playing — nothing else here
+        // would otherwise tell them, since the dead/won overlays are gated
+        // on their OWN personal state.
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center pt-8">
+          <div className="pointer-events-auto border border-amber-100/25 bg-black/75 px-8 py-5 text-center backdrop-blur-[1px]">
+            <h2 className="font-sinhala text-xl tracking-widest text-amber-50/95">තරගය අවසන් විය</h2>
+            <button
+              onClick={returnToLobby}
+              className="font-sinhala mt-4 border border-amber-100/30 px-8 py-2.5 text-sm tracking-[0.2em] text-amber-100/80 hover:border-amber-100/80 hover:bg-amber-100/5"
+            >
+              කාමරයට ආපසු යන්න
+            </button>
+          </div>
+        </div>
+      )}
+
       {gameState === "paused" && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[#0a0905]/92">
           <h2 className="font-sinhala text-3xl tracking-[0.15em] text-amber-100/80">විරාමය</h2>
@@ -401,15 +478,23 @@ export default function MultiplayerRoom({ roomId }: { roomId: string }) {
       )}
 
       {gameState === "dead" && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[#180404]/90">
-          <h2 className="font-sinhala glitch-text text-4xl tracking-widest text-red-300/90">ඔබව රැගෙන ගියා</h2>
-          <p className="font-sinhala mt-4 text-xs tracking-widest text-red-200/30">අනෙක් ක්‍රීඩකයින්ට දිගටම ක්‍රීඩා කළ හැක.</p>
-          <button
-            onClick={leaveRoom}
-            className="font-sinhala mt-10 border border-red-300/30 px-10 py-3 tracking-[0.2em] text-red-200/80 hover:border-red-300/80 hover:bg-red-300/5"
-          >
-            කාමරයෙන් ඉවත් වන්න
-          </button>
+        // Non-blocking, unlike the other overlays here on purpose — the
+        // eliminated player is now spectating (Engine keeps the world/other
+        // player animating behind this), so the banner must not cover the
+        // whole screen the way a true end-state overlay does.
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center pt-8">
+          <div className="pointer-events-auto border border-red-400/25 bg-black/75 px-8 py-5 text-center backdrop-blur-[1px]">
+            <h2 className="font-sinhala glitch-text text-2xl tracking-widest text-red-300/90">ඔබව රැගෙන ගියා</h2>
+            <p className="font-sinhala mt-2 text-xs tracking-widest text-red-200/40">
+              {matchResult ? "තරගය අවසන් විය" : "ඔබ දැන් නරඹන්නෙකි — අනෙක් ක්‍රීඩකයාව නරඹන්න"}
+            </p>
+            <button
+              onClick={matchResult ? returnToLobby : leaveRoom}
+              className="font-sinhala mt-4 border border-red-300/30 px-8 py-2.5 text-sm tracking-[0.2em] text-red-200/80 hover:border-red-300/80 hover:bg-red-300/5"
+            >
+              {matchResult ? "කාමරයට ආපසු යන්න" : "කාමරයෙන් ඉවත් වන්න"}
+            </button>
+          </div>
         </div>
       )}
 
@@ -418,10 +503,10 @@ export default function MultiplayerRoom({ roomId }: { roomId: string }) {
           <h2 className="font-sinhala text-4xl tracking-widest text-amber-50">ඔබ පිටතට පැමිණියා</h2>
           <p className="font-sinhala mt-4 text-xs tracking-widest text-amber-100/40">පිටු 8ම එකතු විය</p>
           <button
-            onClick={leaveRoom}
+            onClick={matchResult ? returnToLobby : leaveRoom}
             className="font-sinhala mt-10 border border-amber-100/40 px-10 py-3 tracking-[0.2em] text-amber-100/90 hover:border-amber-100/90 hover:bg-amber-100/10"
           >
-            මෙනුවට ආපසු
+            {matchResult ? "කාමරයට ආපසු යන්න" : "මෙනුවට ආපසු"}
           </button>
         </div>
       )}

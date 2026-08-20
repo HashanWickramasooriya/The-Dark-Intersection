@@ -194,7 +194,15 @@ function handleMessage(ws: WebSocket, state: ConnState, raw: string) {
       void _type;
       room.recordTransform(playerId, payload);
       room.broadcast({ type: "player_transform", playerId, ...payload }, playerId);
-      if (wasAlive && !payload.alive) room.broadcast({ type: "player_died", playerId });
+      if (wasAlive && !payload.alive) {
+        room.broadcast({ type: "player_died", playerId });
+        // Nobody left alive and nobody has already won — the match can't
+        // continue for anyone, including whoever is now spectating a dead
+        // room, so end it the same way a win does (see endMatch).
+        if (room.state === "playing" && [...room.players.values()].every((p) => !p.alive)) {
+          endMatch(room, null);
+        }
+      }
       break;
     }
     case "page_collect_request": {
@@ -215,10 +223,34 @@ function handleMessage(ws: WebSocket, state: ConnState, raw: string) {
       room.broadcast({ type: "monster_transform", pos: msg.pos, yaw: msg.yaw, state: msg.state, seq: msg.seq }, playerId);
       break;
     }
+    case "player_won": {
+      const { room, playerId } = state;
+      if (!room || !playerId) return;
+      if (room.state !== "playing") return; // already ended, or not in progress — ignore duplicates
+      endMatch(room, playerId);
+      break;
+    }
     case "ping":
       send(ws, { type: "pong" });
       break;
   }
+}
+
+/**
+ * Ends the current round for the whole room (a win or everyone dying) and
+ * resets it back to a fresh, immediately re-startable lobby — mirrors what
+ * Room.start() resets, so a subsequent start_game works exactly like the
+ * first one. The client decides when to actually leave the result screen
+ * and return to its own lobby UI; this just makes the server-side room
+ * state correct for whenever that happens.
+ */
+function endMatch(room: Room, winnerId: string | null) {
+  room.state = "lobby";
+  room.collectedPages.clear();
+  room.exitUnlocked = false;
+  room.monsterAuthorityId = null;
+  room.broadcast({ type: "game_over", winnerId });
+  log.info(`room ${room.id}: match ended (winner=${winnerId ?? "none"})`);
 }
 
 // A plain http.Server (rather than letting `ws` open its own internal one

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { CELL, Level, PILLAR } from "./level";
-import { Player } from "./player";
+import { Player, EYE_HEIGHT } from "./player";
 import { Entity, EntityContext, EntityState, ENTITY_KILL_DIST } from "./entity";
 import { GameAudio } from "./audio";
 import { GameFX } from "./fx";
@@ -65,6 +65,8 @@ export interface EngineCallbacks {
   onPageText: (lines: string[]) => void;
   onStats: (stats: { pages: number; seconds: number }) => void;
   onToast: (msg: string) => void;
+  /** Multiplayer only — the whole room's match ended (win, or everyone died). */
+  onGameOver?: (winnerId: string | null) => void;
 }
 
 const POOL_SIZE = 12;
@@ -660,6 +662,14 @@ export class Engine {
         }
         break;
       }
+      case "game_over": {
+        // Whole-room signal (win, or everyone eliminated) — the host page
+        // decides what UI/navigation to do with this; Engine itself doesn't
+        // change state here (it may already be "playing", "dead", etc. on
+        // different clients simultaneously, all equally valid).
+        this.callbacks.onGameOver?.(msg.winnerId);
+        break;
+      }
     }
   };
 
@@ -677,8 +687,14 @@ export class Engine {
     };
     if (!this.net || this.remotePlayers.size === 0) return local;
 
+    // A dead/eliminated local player must never keep being a valid AI
+    // target just because their (now-frozen) corpse happens to be nearby —
+    // without this the entity gets permanently "stuck" on whoever it killed
+    // first instead of re-targeting the remaining alive player(s).
     let best = local;
-    let bestDist = this.entity.pos.distanceTo(this.player.pos);
+    let bestDist = this.state === "playing"
+      ? this.entity.pos.distanceTo(this.player.pos)
+      : Infinity;
     for (const rp of this.remotePlayers.values()) {
       if (!rp.alive) continue;
       const d = this.entity.pos.distanceTo(rp.root.position);
@@ -830,10 +846,13 @@ export class Engine {
           seconds: Math.floor(t - this.startedAt),
         });
         document.exitPointerLock();
+        if (this.net) this.net.client.send({ type: "player_won" });
       }
     } else if (this.state === "dying") {
       this.updateDeath(dt);
       this.broadcastLocalTransform(dt); // carries alive:false to the room promptly
+    } else if (this.state === "dead" && this.net) {
+      this.updateSpectator(dt, t);
     }
 
     this.updateFixtures(t, dt);
@@ -870,6 +889,41 @@ export class Engine {
         seconds: Math.floor(this.elapsed - this.startedAt),
       });
       document.exitPointerLock();
+    }
+  }
+
+  /**
+   * Multiplayer only, once this client's own player is dead: keep the match
+   * alive around the eliminated player instead of freezing the world. Remote
+   * players and the monster keep animating/simulating exactly as they would
+   * while playing, and the camera just follows the nearest still-alive
+   * remote player — purely a render-time re-target. No input is read here
+   * and nothing is sent on this player's behalf, so it can't affect
+   * gameplay or the other player's state.
+   */
+  private updateSpectator(dt: number, t: number) {
+    for (const rp of this.remotePlayers.values()) rp.update(dt);
+
+    if (this.isMonsterAuthority) {
+      // The host dying must not freeze the AI for whoever is still playing.
+      if (!this.cheats.freeze) {
+        this.entity.update(dt, this.resolveEntityContext(this.vCamDir, t));
+      }
+      this.broadcastMonsterTransform(dt);
+    } else {
+      this.remoteMonster?.update(dt);
+    }
+
+    let target: RemotePlayer | null = null;
+    for (const rp of this.remotePlayers.values()) {
+      if (rp.alive) {
+        target = rp;
+        break;
+      }
+    }
+    if (target) {
+      this.player.camera.position.set(target.root.position.x, EYE_HEIGHT, target.root.position.z);
+      this.player.camera.rotation.set(0, target.root.rotation.y, 0);
     }
   }
 

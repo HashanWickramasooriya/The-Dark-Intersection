@@ -29,6 +29,7 @@ export default function GameCanvas({ callbacksRef, onReady, net }: Props) {
         onPageText: (l) => callbacksRef.current?.onPageText(l),
         onStats: (s) => callbacksRef.current?.onStats(s),
         onToast: (m) => callbacksRef.current?.onToast(m),
+        onGameOver: (w) => callbacksRef.current?.onGameOver?.(w),
       }, net);
       if (process.env.NODE_ENV !== "production") {
         (window as unknown as Record<string, unknown>).__backrooms = engine;

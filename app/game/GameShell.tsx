@@ -146,6 +146,7 @@ export default function GameShell() {
         // found" every time.
         unsub();
         sessionStorage.setItem("mp_name", mpName.trim());
+        sessionStorage.setItem("mp_name_set", "1");
         setPendingRoom({
           roomId: createdRoomId,
           client,
@@ -163,6 +164,7 @@ export default function GameShell() {
     const code = mpCode.trim().toUpperCase();
     if (!code) return;
     sessionStorage.setItem("mp_name", mpName.trim());
+    sessionStorage.setItem("mp_name_set", "1");
     router.push(`/multiplayer/${code}`);
   };
   const resume = () => {
