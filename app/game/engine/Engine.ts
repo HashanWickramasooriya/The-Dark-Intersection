@@ -924,6 +924,13 @@ export class Engine {
     if (target) {
       this.player.camera.position.set(target.root.position.x, EYE_HEIGHT, target.root.position.z);
       this.player.camera.rotation.set(0, target.root.rotation.y, 0);
+      // Repositioning the camera alone isn't enough — updateFixtures()
+      // (the light-pool "light orchestra" that does most of the actual
+      // room lighting in this engine) and updateFearAndAudio() both key
+      // off player.pos, not the camera. Without this, the light pool stays
+      // parked at the death spot forever, so wherever the spectator camera
+      // actually looks stays essentially unlit — the reported black screen.
+      this.player.pos.set(target.root.position.x, 0, target.root.position.z);
     }
   }
 
