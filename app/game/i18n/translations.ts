@@ -41,6 +41,11 @@ const si = {
   "menu.headphonesHint": "හෙඩ්ෆෝන් පැළඳීම තදින්ම නිර්දේශ කරමු",
   "menu.developer": "Developer  හෂාන්",
   "menu.language": "භාෂාව",
+  "menu.sound": "ශබ්දය",
+  "sound.title": "ශබ්දය",
+  "sound.music": "සංගීතය",
+  "sound.effects": "ශබ්ද ප්‍රයෝග",
+  "sound.back": "ආපසු",
 
   // ------------------------------------------------------------- credits
   "credits.title": "නිර්මාණකරුවන්",
@@ -201,6 +206,11 @@ const en: Record<Key, string> = {
   "menu.headphonesHint": "Headphones strongly recommended",
   "menu.developer": "Developer  Hashan",
   "menu.language": "Language",
+  "menu.sound": "Sound",
+  "sound.title": "Sound",
+  "sound.music": "Music",
+  "sound.effects": "Effects",
+  "sound.back": "Back",
 
   // ------------------------------------------------------------- credits
   "credits.title": "Credits",

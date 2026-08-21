@@ -9,6 +9,7 @@ import { RoomClient } from "../../game/net/RoomClient";
 import { takePendingRoom } from "../../game/net/pendingRoom";
 import type { PlayerInfo, ServerMessage } from "../../game/net/protocol";
 import { useLanguage } from "../../game/i18n/LanguageContext";
+import { useSoundSettings } from "../../game/settings/SoundSettingsContext";
 
 const GameCanvas = dynamic(() => import("../../game/GameCanvas"), { ssr: false });
 
@@ -30,6 +31,7 @@ type Phase = "name_entry" | "connecting" | "join_error" | "lobby" | "playing";
 export default function MultiplayerRoom({ roomId }: { roomId: string }) {
   const router = useRouter();
   const { lang, t } = useLanguage();
+  const { musicVolume, effectsVolume } = useSoundSettings();
   const clientRef = useRef<RoomClient | null>(null);
   const engineRef = useRef<Engine | null>(null);
 
@@ -395,7 +397,16 @@ export default function MultiplayerRoom({ roomId }: { roomId: string }) {
   // phase === "playing"
   return (
     <div className="fixed inset-0 select-none overflow-hidden bg-black">
-      {net && <GameCanvas callbacksRef={callbacksRef} onReady={handleReady} lang={lang} net={net} />}
+      {net && (
+        <GameCanvas
+          callbacksRef={callbacksRef}
+          onReady={handleReady}
+          lang={lang}
+          musicVolume={musicVolume}
+          effectsVolume={effectsVolume}
+          net={net}
+        />
+      )}
 
       {toast && (
         <div className="font-sinhala pointer-events-none absolute left-1/2 top-[8%] z-20 -translate-x-1/2 border border-emerald-200/20 bg-black/80 px-5 py-2 text-[12px] tracking-widest text-emerald-100/90">

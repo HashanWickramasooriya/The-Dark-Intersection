@@ -19,9 +19,23 @@ export interface AudioParams {
 export class GameAudio {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
+  /** Continuous ambient/dread bed — hum, room tone, drone, chase layer,
+   * breathing, heartbeat, whispers. This game has no music FILE (everything
+   * is synthesized), so this bus IS "music" in the sense the settings menu
+   * means it: the background atmosphere layer, as opposed to discrete
+   * player/monster-triggered sounds. */
+  private music!: GainNode;
+  /** Discrete one-shots — footsteps, interactions, monster stinger/attack
+   * sounds, UI clicks. */
   private sfx!: GainNode;
   private wet!: GainNode;
   private noiseBuf!: AudioBuffer;
+
+  /** User volume settings — 0..1, applied to the music/sfx buses. Can be
+   * set before init() (applied when the buses are created) or after
+   * (ramped live via setMusicVolume/setEffectsVolume). */
+  musicVolume = 0.7;
+  effectsVolume = 1;
 
   private hum!: GainNode;
   private drone!: GainNode;
@@ -64,7 +78,13 @@ export class GameAudio {
     this.wet.connect(convolver);
     convolver.connect(this.master);
 
+    this.music = ctx.createGain();
+    this.music.gain.value = this.musicVolume;
+    this.music.connect(this.master);
+    this.music.connect(this.wet);
+
     this.sfx = ctx.createGain();
+    this.sfx.gain.value = this.effectsVolume;
     this.sfx.connect(this.master);
     this.sfx.connect(this.wet);
 
@@ -74,6 +94,18 @@ export class GameAudio {
     this.startRoomTone();
     this.startDrone();
     this.startBreath();
+  }
+
+  /** 0..1 — the continuous ambient/dread bed (see `music` bus doc comment). */
+  setMusicVolume(v: number) {
+    this.musicVolume = Math.max(0, Math.min(1, v));
+    if (this.ctx && this.music) this.music.gain.setTargetAtTime(this.musicVolume, this.ctx.currentTime, 0.05);
+  }
+
+  /** 0..1 — discrete one-shots (footsteps, interactions, monster stinger/attack sounds). */
+  setEffectsVolume(v: number) {
+    this.effectsVolume = Math.max(0, Math.min(1, v));
+    if (this.ctx && this.sfx) this.sfx.gain.setTargetAtTime(this.effectsVolume, this.ctx.currentTime, 0.05);
   }
 
   async resume() {
@@ -119,7 +151,7 @@ export class GameAudio {
     const ctx = this.ctx!;
     this.hum = ctx.createGain();
     this.hum.gain.value = 0.0;
-    this.hum.connect(this.master);
+    this.hum.connect(this.music);
 
     const lp = ctx.createBiquadFilter();
     lp.type = "lowpass";
@@ -148,7 +180,7 @@ export class GameAudio {
     g.gain.value = 0.05;
     src.connect(lp);
     lp.connect(g);
-    g.connect(this.master);
+    g.connect(this.music);
     src.start();
 
     // Slow swell so silence never feels safe.
@@ -165,8 +197,7 @@ export class GameAudio {
     const ctx = this.ctx!;
     this.drone = ctx.createGain();
     this.drone.gain.value = 0;
-    this.drone.connect(this.master);
-    this.drone.connect(this.wet);
+    this.drone.connect(this.music);
 
     // Dissonant cluster — minor second + tritone intervals, slowly beating.
     for (const [freq, g] of [[55, 0.5], [56.7, 0.4], [82.4, 0.2], [110.6, 0.12], [164.2, 0.07]] as const) {
@@ -183,7 +214,7 @@ export class GameAudio {
     // Chase layer: harsher, pulsing.
     this.chaseLayer = ctx.createGain();
     this.chaseLayer.gain.value = 0;
-    this.chaseLayer.connect(this.master);
+    this.chaseLayer.connect(this.music);
     const saw = ctx.createOscillator();
     saw.type = "sawtooth";
     saw.frequency.value = 41.2;
@@ -226,7 +257,7 @@ export class GameAudio {
     lfo.connect(lfoG);
     lfoG.connect(base.gain);
     base.connect(this.breathGain);
-    this.breathGain.connect(this.master);
+    this.breathGain.connect(this.music);
     src.start();
     lfo.start();
   }
@@ -284,7 +315,7 @@ export class GameAudio {
       g.gain.linearRampToValueAtTime(gain, at + 0.012);
       g.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
       osc.connect(g);
-      g.connect(this.master);
+      g.connect(this.music);
       osc.start(at);
       osc.stop(at + 0.2);
     };
@@ -391,7 +422,7 @@ export class GameAudio {
     src.connect(bp);
     bp.connect(g);
     g.connect(pan);
-    pan.connect(this.wet);
+    pan.connect(this.music);
     src.start(t, Math.random());
     src.stop(t + dur + 0.1);
     wob.start(t);
@@ -457,8 +488,7 @@ export class GameAudio {
     sg.gain.setValueAtTime(0.55, t + 0.7);
     sg.gain.exponentialRampToValueAtTime(0.0001, t + 1.9);
     shaper.connect(sg);
-    sg.connect(this.master);
-    sg.connect(this.wet);
+    sg.connect(this.sfx);
 
     for (const ratio of [1, 1.93, 2.41]) {
       const osc = ctx.createOscillator();
@@ -494,7 +524,7 @@ export class GameAudio {
     ng.gain.exponentialRampToValueAtTime(0.001, t + 1.1);
     src.connect(bp);
     bp.connect(ng);
-    ng.connect(this.master);
+    ng.connect(this.sfx);
     src.start(t, Math.random());
     src.stop(t + 1.2);
 
@@ -505,7 +535,7 @@ export class GameAudio {
     subG.gain.setValueAtTime(0.5, t);
     subG.gain.exponentialRampToValueAtTime(0.001, t + 1.4);
     sub.connect(subG);
-    subG.connect(this.master);
+    subG.connect(this.sfx);
     sub.start(t);
     sub.stop(t + 1.5);
   }
@@ -576,9 +606,15 @@ export class GameAudio {
     lp.type = "lowpass";
     lp.frequency.value = 850;
     const og = ctx.createGain();
+    // Connected only to `wet` (reverb send, not the dry sfx/music buses) so
+    // it deliberately sits "somewhere out there" rather than in your ear —
+    // preserved exactly, just scaled by effectsVolume at creation time
+    // (this is a classified SFX: an environmental event cue, not ambience).
+    // exponentialRampToValueAtTime throws if the target is exactly 0.
+    const v = Math.max(0.0001, this.effectsVolume);
     og.gain.setValueAtTime(0.0001, t);
-    og.gain.exponentialRampToValueAtTime(0.05, t + 0.7);
-    og.gain.setValueAtTime(0.05, t + 2.4);
+    og.gain.exponentialRampToValueAtTime(0.05 * v, t + 0.7);
+    og.gain.setValueAtTime(0.05 * v, t + 2.4);
     og.gain.exponentialRampToValueAtTime(0.0001, t + 3.6);
     osc.connect(lp);
     lp.connect(og);
@@ -595,7 +631,7 @@ export class GameAudio {
       bp.frequency.value = 2200 + Math.random() * 2000;
       bp.Q.value = 3;
       const g = ctx.createGain();
-      g.gain.setValueAtTime(0.05, at);
+      g.gain.setValueAtTime(0.05 * v, at);
       g.gain.exponentialRampToValueAtTime(0.001, at + 0.05);
       src.connect(bp);
       bp.connect(g);
@@ -664,8 +700,7 @@ export class GameAudio {
       g.gain.linearRampToValueAtTime(g0, t + at + 0.4);
       g.gain.linearRampToValueAtTime(0, t + at + 4);
       osc.connect(g);
-      g.connect(this.master);
-      g.connect(this.wet);
+      g.connect(this.sfx);
       osc.start(t + at);
       osc.stop(t + at + 4.2);
     }

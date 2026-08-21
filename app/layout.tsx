@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { Analytics } from "@vercel/analytics/next";
 import { LanguageProvider } from "./game/i18n/LanguageContext";
+import { SoundSettingsProvider } from "./game/settings/SoundSettingsContext";
 import "./globals.css";
 
 // Special Elite (Apache 2.0), self-hosted: builds kept failing on flaky
@@ -134,7 +135,9 @@ export default function RootLayout({
             __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c"),
           }}
         />
-        <LanguageProvider>{children}</LanguageProvider>
+        <LanguageProvider>
+          <SoundSettingsProvider>{children}</SoundSettingsProvider>
+        </LanguageProvider>
         {/* Vercel-only — the CrazyGames bundle would just spam 404s */}
         {process.env.CG_EXPORT !== "1" && <Analytics />}
       </body>

@@ -16,6 +16,7 @@ import { RoomClient } from "./net/RoomClient";
 import { setPendingRoom } from "./net/pendingRoom";
 import { LANGUAGES } from "./i18n/translations";
 import { useLanguage } from "./i18n/LanguageContext";
+import { useSoundSettings } from "./settings/SoundSettingsContext";
 
 const GameCanvas = dynamic(() => import("./GameCanvas"), { ssr: false });
 
@@ -34,6 +35,8 @@ const INITIAL_HUD: HudState = {
 
 export default function GameShell() {
   const { lang, setLang, t } = useLanguage();
+  const { musicVolume, effectsVolume, setMusicVolume, setEffectsVolume } = useSoundSettings();
+  const [showSound, setShowSound] = useState(false);
   const engineRef = useRef<Engine | null>(null);
   const autoStartRef = useRef(false);
   const [runId, setRunId] = useState(0);
@@ -188,6 +191,7 @@ export default function GameShell() {
     setPageLines(null);
     setBanner(null);
     setShowCredits(false);
+    setShowSound(false);
     bannerKindRef.current = ""; // next run re-announces the objective
     if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
     engineRef.current = null;
@@ -204,7 +208,14 @@ export default function GameShell() {
 
   return (
     <div className="fixed inset-0 select-none overflow-hidden bg-black">
-      <GameCanvas key={runId} callbacksRef={callbacksRef} onReady={handleReady} lang={lang} />
+      <GameCanvas
+        key={runId}
+        callbacksRef={callbacksRef}
+        onReady={handleReady}
+        lang={lang}
+        musicVolume={musicVolume}
+        effectsVolume={effectsVolume}
+      />
 
       {/* dev/cheat toast — sits above everything */}
       {toast && (
@@ -348,6 +359,22 @@ export default function GameShell() {
                 {t("credits.back")}
               </ArmedButton>
             </>
+          ) : showSound ? (
+            <>
+              <h2 className="vhs-title font-sinhala text-3xl tracking-[0.15em] text-amber-50/90">
+                {t("sound.title")}
+              </h2>
+              <div className="mt-8 flex w-full max-w-xs flex-col gap-6">
+                <VolumeSlider label={t("sound.music")} value={musicVolume} onChange={setMusicVolume} />
+                <VolumeSlider label={t("sound.effects")} value={effectsVolume} onChange={setEffectsVolume} />
+              </div>
+              <ArmedButton
+                onClick={() => setShowSound(false)}
+                className="font-sinhala mt-10 border border-amber-100/30 px-10 py-2.5 text-sm tracking-[0.2em] text-amber-100/70 transition-all hover:border-amber-100/80 hover:bg-amber-100/5"
+              >
+                {t("sound.back")}
+              </ArmedButton>
+            </>
           ) : (
             <>
               <div className="flicker-slow font-sinhala text-[11px] tracking-[0.3em] text-amber-200/40">
@@ -421,6 +448,12 @@ export default function GameShell() {
                     className="font-sinhala border border-amber-100/40 px-8 py-3 text-base tracking-widest text-amber-100/75 transition-all hover:border-amber-100/80 hover:bg-amber-100/5 hover:text-amber-100"
                   >
                     {t("menu.multiplayer")}
+                  </button>
+                  <button
+                    onClick={() => setShowSound(true)}
+                    className="font-sinhala border border-amber-100/15 px-8 py-3 text-sm tracking-widest text-amber-100/50 transition-all hover:border-amber-100/60 hover:bg-amber-100/5 hover:text-amber-100/90"
+                  >
+                    {t("menu.sound")}
                   </button>
                   <button
                     onClick={() => setShowCredits(true)}
@@ -568,6 +601,39 @@ export default function GameShell() {
           <GitHubBadge className="mt-8" label={t("won.starPrompt")} />
         </Overlay>
       )}
+    </div>
+  );
+}
+
+/** A single labeled volume row — range input + live percentage readout,
+ * styled to match the existing menu's amber/black look rather than a
+ * default browser slider. */
+function VolumeSlider({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  const pct = Math.round(value * 100);
+  return (
+    <div className="font-sinhala flex flex-col gap-2">
+      <div className="flex items-center justify-between text-[12px] tracking-widest text-amber-100/60">
+        <span>{label}</span>
+        <span className="text-amber-100/90">{pct}%</span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={pct}
+        onChange={(e) => onChange(Number(e.target.value) / 100)}
+        aria-label={label}
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-amber-100/15 accent-amber-100 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-amber-100 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-amber-100"
+      />
     </div>
   );
 }

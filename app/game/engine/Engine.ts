@@ -175,8 +175,16 @@ export class Engine {
     private canvas: HTMLCanvasElement,
     private callbacks: EngineCallbacks,
     private lang: Language,
+    musicVolume: number,
+    effectsVolume: number,
     private net?: EngineNetContext,
   ) {
+    // Applied before audio.init() is ever called (that only happens once
+    // start() runs), so the buses come up at the right level immediately —
+    // no silent-then-jump-to-volume moment.
+    this.audio.musicVolume = musicVolume;
+    this.audio.effectsVolume = effectsVolume;
+
     const seed = net?.seed ?? (Date.now() ^ (Math.random() * 0xffffff)) >>> 0;
     const width = container.clientWidth;
     const height = container.clientHeight;
@@ -471,6 +479,17 @@ export class Engine {
 
   setSneak(on: boolean) {
     this.player.sneaking = on;
+  }
+
+  /** Live volume update — 0..1. Safe to call before audio.init() (the
+   * value is just stored and applied when the buses are created) or while
+   * already playing (ramped immediately, no restart). Local-only setting,
+   * never sent over the network. */
+  setMusicVolume(v: number) {
+    this.audio.setMusicVolume(v);
+  }
+  setEffectsVolume(v: number) {
+    this.audio.setEffectsVolume(v);
   }
 
   /* ------------------------------ cheats ------------------------------ */
@@ -954,6 +973,17 @@ export class Engine {
    * gameplay or the other player's state.
    */
   private updateSpectator(dt: number, t: number) {
+    // deathT drives the death shader's red/dark screen collapse (see
+    // fx.ts's HorrorShader) and is only ever ramped up by updateDeath()
+    // during the brief "dying" transition — nothing ever resets it back
+    // down afterward, so without this it stays pinned at 1.0 (maximum)
+    // for the rest of the spectator session, permanently crushing the
+    // whole screen to ~10% brightness with a red tint. Single-player is
+    // unaffected: this only runs while actually spectating in multiplayer
+    // (this.net set), and single-player's own "dead" overlay is opaque UI
+    // covering the canvas anyway, so its deathT was never actually visible.
+    this.deathT = 0;
+
     for (const rp of this.remotePlayers.values()) rp.update(dt);
 
     if (this.isMonsterAuthority) {

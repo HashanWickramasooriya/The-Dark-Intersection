@@ -8,13 +8,18 @@ interface Props {
   callbacksRef: React.RefObject<EngineCallbacks>;
   onReady: (engine: Engine) => void;
   lang: Language;
+  /** 0..1 — local-only, never sent over the network. Applied at construction
+   * and live-updated afterward if they change while this Engine is alive. */
+  musicVolume: number;
+  effectsVolume: number;
   /** present only for multiplayer runs — single-player passes nothing */
   net?: EngineNetContext;
 }
 
-export default function GameCanvas({ callbacksRef, onReady, lang, net }: Props) {
+export default function GameCanvas({ callbacksRef, onReady, lang, musicVolume, effectsVolume, net }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const engineRef = useRef<Engine | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -32,7 +37,8 @@ export default function GameCanvas({ callbacksRef, onReady, lang, net }: Props) 
         onStats: (s) => callbacksRef.current?.onStats(s),
         onToast: (m) => callbacksRef.current?.onToast(m),
         onGameOver: (w) => callbacksRef.current?.onGameOver?.(w),
-      }, lang, net);
+      }, lang, musicVolume, effectsVolume, net);
+      engineRef.current = engine;
       if (process.env.NODE_ENV !== "production") {
         (window as unknown as Record<string, unknown>).__backrooms = engine;
       }
@@ -42,9 +48,19 @@ export default function GameCanvas({ callbacksRef, onReady, lang, net }: Props) 
     return () => {
       cancelAnimationFrame(raf);
       engine?.dispose();
+      engineRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- engine lives for the lifetime of this mount (keyed remount per run)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- engine lives for the lifetime of this mount (keyed remount per run); volume changes are handled by the effects below, not by remounting
   }, []);
+
+  // Live volume updates — do NOT recreate the Engine, just ramp the
+  // already-running (or not-yet-started) audio buses.
+  useEffect(() => {
+    engineRef.current?.setMusicVolume(musicVolume);
+  }, [musicVolume]);
+  useEffect(() => {
+    engineRef.current?.setEffectsVolume(effectsVolume);
+  }, [effectsVolume]);
 
   return (
     <div ref={containerRef} className="absolute inset-0">
