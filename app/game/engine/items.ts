@@ -35,7 +35,7 @@ export class Items {
   private beyondGlow!: THREE.Mesh;
   private vTo = new THREE.Vector3(); // scratch — called every frame
 
-  constructor(private level: Level, seed: number, scene: THREE.Scene, private lang: Language) {
+  constructor(private level: Level, seed: number, scene: THREE.Scene, private lang: Language, private multiplayer = false) {
     const geo = new THREE.PlaneGeometry(0.21, 0.28);
     this.level.pageSpots.slice(0, TOTAL_PAGES).forEach((spot, i) => {
       const tex = makePageTexture(seed, i);
@@ -131,7 +131,15 @@ export class Items {
   }
 
   get allCollected(): boolean {
-    return this.collected >= Math.min(TOTAL_PAGES, this.pages.length);
+    // Multiplayer: the server is the single source of truth and always unlocks
+    // the exit at exactly TOTAL_PAGES. Comparing against this room's own
+    // pages.length here could let the UI claim "all collected"/show an
+    // "escape" prompt while the server-controlled exitOpen is still (correctly)
+    // false, making the door look broken. Single-player keeps the defensive
+    // Math.min fallback since there's no server to defer to.
+    return this.multiplayer
+      ? this.collected >= TOTAL_PAGES
+      : this.collected >= Math.min(TOTAL_PAGES, this.pages.length);
   }
 
   /** Same cell, or an unobstructed straight line to it through the maze walls. */

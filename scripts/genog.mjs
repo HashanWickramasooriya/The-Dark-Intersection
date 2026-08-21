@@ -118,7 +118,7 @@ const finalB64 = await page.evaluate(async (b64, W, H) => {
   x.letterSpacing = "10px";
   x.fillStyle = "rgba(255,228,160,0.55)";
   x.font = `20px ${fam}`;
-  x.fillText("L E V E L  0", W / 2, H - 178);
+  x.fillText("L E V E L  1", W / 2, H - 178);
 
   x.letterSpacing = "18px";
   x.fillStyle = "#f7ecca";

@@ -278,7 +278,7 @@ export default function MultiplayerRoom({ roomId }: { roomId: string }) {
     return (
       <Screen>
         <div className="flicker-slow font-sinhala text-[11px] tracking-[0.3em] text-amber-200/40">
-          {t("mp.nameEntry.roomLabel")} — {roomId}
+          {t("mp.nameEntry.roomLabel")} · {roomId}
         </div>
         <h1 className="vhs-title font-sinhala mt-2 text-2xl tracking-[0.1em] text-amber-50/95">{t("mp.nameEntry.title")}</h1>
         <input
@@ -328,7 +328,7 @@ export default function MultiplayerRoom({ roomId }: { roomId: string }) {
           {t("mp.lobby.title")}
         </div>
         <h1 className="vhs-title font-sinhala mt-2 text-3xl tracking-[0.1em] text-amber-50/95">
-          {t("mp.lobby.roomCode")} — {roomId}
+          {t("mp.lobby.roomCode")} · {roomId}
         </h1>
 
         <div className="font-sinhala mt-6 w-full max-w-sm">

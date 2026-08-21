@@ -530,32 +530,54 @@ export default function GameShell() {
       {/* ----------------------------- PAUSED ----------------------------- */}
       {state === "paused" && (
         <Overlay>
-          <h2 className="font-sinhala text-4xl tracking-[0.15em] text-amber-100/80">
-            {t("paused.title")}
-          </h2>
-          <p className="font-sinhala mt-4 text-sm tracking-widest text-amber-100/40">
-            {t("paused.subtitle")}
-          </p>
-          <ArmedButton
-            onClick={resume}
-            disabled={resuming}
-            className="font-sinhala mt-8 border border-amber-100/30 px-10 py-3 tracking-[0.2em] text-amber-100/80 transition-all hover:border-amber-100/80 hover:bg-amber-100/5 disabled:opacity-50"
-          >
-            {resuming ? t("paused.resuming") : t("paused.resume")}
-          </ArmedButton>
-          <ArmedButton
-            onClick={exitToMenu}
-            className="font-sinhala mt-4 border border-amber-100/15 px-10 py-2.5 text-sm tracking-[0.2em] text-amber-100/45 transition-all hover:border-red-300/50 hover:text-red-200/80 disabled:opacity-50"
-          >
-            {t("paused.exitToMenu")}
-          </ArmedButton>
-          <p className="font-sinhala mt-3 text-[10px] tracking-widest text-amber-100/20">
-            {t("paused.footer")}
-          </p>
-          <div className="mt-8 flex items-center gap-8">
-            <GitHubBadge />
-            <XBadge />
-          </div>
+          {showSound ? (
+            <>
+              <h2 className="vhs-title font-sinhala text-3xl tracking-[0.15em] text-amber-50/90">
+                {t("sound.title")}
+              </h2>
+              <div className="mt-8 flex w-full max-w-xs flex-col gap-6">
+                <VolumeSlider label={t("sound.music")} value={musicVolume} onChange={setMusicVolume} />
+                <VolumeSlider label={t("sound.effects")} value={effectsVolume} onChange={setEffectsVolume} />
+              </div>
+              <ArmedButton
+                onClick={() => setShowSound(false)}
+                className="font-sinhala mt-10 border border-amber-100/30 px-10 py-2.5 text-sm tracking-[0.2em] text-amber-100/70 transition-all hover:border-amber-100/80 hover:bg-amber-100/5"
+              >
+                {t("sound.back")}
+              </ArmedButton>
+            </>
+          ) : (
+            <>
+              <h2 className="font-sinhala text-4xl tracking-[0.15em] text-amber-100/80">
+                {t("paused.title")}
+              </h2>
+              <p className="font-sinhala mt-4 text-sm tracking-widest text-amber-100/40">
+                {t("paused.subtitle")}
+              </p>
+              <ArmedButton
+                onClick={resume}
+                disabled={resuming}
+                className="font-sinhala mt-8 border border-amber-100/30 px-10 py-3 tracking-[0.2em] text-amber-100/80 transition-all hover:border-amber-100/80 hover:bg-amber-100/5 disabled:opacity-50"
+              >
+                {resuming ? t("paused.resuming") : t("paused.resume")}
+              </ArmedButton>
+              <ArmedButton
+                onClick={() => setShowSound(true)}
+                className="font-sinhala mt-4 border border-amber-100/15 px-10 py-2.5 text-sm tracking-[0.2em] text-amber-100/50 transition-all hover:border-amber-100/60 hover:bg-amber-100/5 hover:text-amber-100/90 disabled:opacity-50"
+              >
+                {t("menu.sound")}
+              </ArmedButton>
+              <ArmedButton
+                onClick={exitToMenu}
+                className="font-sinhala mt-4 border border-amber-100/15 px-10 py-2.5 text-sm tracking-[0.2em] text-amber-100/45 transition-all hover:border-red-300/50 hover:text-red-200/80 disabled:opacity-50"
+              >
+                {t("paused.exitToMenu")}
+              </ArmedButton>
+              <p className="font-sinhala mt-3 text-[10px] tracking-widest text-amber-100/20">
+                {t("paused.footer")}
+              </p>
+            </>
+          )}
         </Overlay>
       )}
 
@@ -686,32 +708,6 @@ function GitHubBadge({
         className="h-4 w-4 fill-current opacity-70 transition-opacity group-hover:opacity-100"
       >
         <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
-      </svg>
-      {label}
-    </a>
-  );
-}
-
-function XBadge({
-  className = "",
-  label = "Hashan Wickramasooriya",
-}: {
-  className?: string;
-  label?: string;
-}) {
-  return (
-    <a
-      href="https://x.com/Star_Knight12"
-      target="_blank"
-      rel="noopener noreferrer"
-      className={`font-sinhala group flex items-center gap-2 text-[11px] tracking-widest text-amber-100/30 transition-all hover:text-amber-100/80 hover:[text-shadow:0_0_14px_rgba(255,220,140,0.4)] ${className}`}
-    >
-      <svg
-        viewBox="0 0 24 24"
-        aria-hidden="true"
-        className="h-3.5 w-3.5 fill-current opacity-70 transition-opacity group-hover:opacity-100"
-      >
-        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.451-6.231Zm-1.161 17.52h1.833L7.084 4.126H5.117l11.966 15.644Z" />
       </svg>
       {label}
     </a>

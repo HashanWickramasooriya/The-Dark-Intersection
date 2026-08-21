@@ -207,7 +207,7 @@ export class Engine {
     this.scene.fog = new THREE.FogExp2(fogColor, 0.036);
 
     // The mono-yellow wash: ceiling glow above, carpet bounce below.
-    // Level 0 is BRIGHT — the horror is the emptiness, not the dark.
+    // Level 1 is BRIGHT - the horror is the emptiness, not the dark.
     this.scene.add(new THREE.AmbientLight(0x3a3420, 0.85));
     this.scene.add(new THREE.HemisphereLight(0xfff0c2, 0x4a3f24, 0.5));
 
@@ -232,7 +232,7 @@ export class Engine {
     // independently by every client (see loop()'s "self-proximity" check).
     this.entity.onKill = () => { if (!this.net) this.beginDeath(); };
 
-    this.items = new Items(this.level, seed, this.scene, lang);
+    this.items = new Items(this.level, seed, this.scene, lang, !!this.net);
 
     if (this.net) {
       this.isMonsterAuthority = this.net.isHost;

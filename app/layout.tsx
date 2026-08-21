@@ -39,8 +39,8 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE),
   title: "The Dark Intersection",
   description:
-    "Play the Backrooms free in your browser. First-person horror in a procedurally generated maze — find the 8 pages, escape Level 0, don't let it hear you walk. No download.",
-  applicationName: "Backrooms: Level 0",
+    "Play the Backrooms free in your browser. First-person horror in a procedurally generated maze - find the 8 pages, escape Level 1, don't let it hear you walk. No download.",
+  applicationName: "Backrooms: Level 1",
   authors: [{ name: "Hashanwickramasooriya", url: "https://github.com/Hashanwickramasooriya" }],
   creator: "Hashanwickramasooriya",
   keywords: [
@@ -49,7 +49,7 @@ export const metadata: Metadata = {
     "play backrooms online",
     "browser horror game",
     "free horror game",
-    "level 0",
+    "level 1",
     "liminal space game",
     "no download horror game",
     "three.js game",
@@ -58,11 +58,11 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
   robots: { index: true, follow: true },
   openGraph: {
-    title: "Backrooms: Level 0 — Free Browser Horror Game",
+    title: "Backrooms: Level 1 | Free Browser Horror Game",
     description:
       "You noclipped out of reality. Find the 8 pages, escape the maze, don't let it hear you walk. Every run is a maze that has never existed before.",
     url: "/",
-    siteName: "Backrooms: Level 0",
+    siteName: "Backrooms: Level 1",
     type: "website",
     locale: "en_US",
   },
@@ -70,7 +70,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     site: "Hashan Wickramasooriya",
     creator: "Hashan Wickramasooriya",
-    title: "Backrooms: Level 0 — Free Browser Horror Game",
+    title: "Backrooms: Level 1 | Free Browser Horror Game",
     description:
       "You noclipped out of reality. Find the 8 pages, escape the maze, don't let it hear you walk.",
   },
@@ -92,11 +92,11 @@ export const viewport: Viewport = {
 const jsonLd = {
   "@context": "https://schema.org",
   "@type": "VideoGame",
-  name: "Backrooms: Level 0",
+  name: "Backrooms: Level 1",
   url: SITE,
   image: `${SITE}/opengraph-image.png`,
   description:
-    "Free first-person horror game in the browser. Explore a procedurally generated Backrooms maze, collect the 8 pages and escape — while something hunts you by sound.",
+    "Free first-person horror game in the browser. Explore a procedurally generated Backrooms maze, collect the 8 pages and escape - while something hunts you by sound.",
   genre: ["Horror", "Survival"],
   playMode: "SinglePlayer",
   gamePlatform: ["Web Browser"],
