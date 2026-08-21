@@ -31,11 +31,15 @@ export class GameAudio {
   private wet!: GainNode;
   private noiseBuf!: AudioBuffer;
 
-  /** User volume settings — 0..1, applied to the music/sfx buses. Can be
-   * set before init() (applied when the buses are created) or after
-   * (ramped live via setMusicVolume/setEffectsVolume). */
+  /** User volume settings — 0..1, applied to the music/sfx/master buses. Can
+   * be set before init() (applied when the buses are created) or after
+   * (ramped live via setMusicVolume/setEffectsVolume/setMasterVolume). */
   musicVolume = 0.7;
   effectsVolume = 1;
+  /** Overall output level, applied on top of the music/sfx mix. Default
+   * matches the bus's original hardcoded value so existing saved settings
+   * (from before this control existed) sound identical to before. */
+  masterVolume = 0.9;
 
   private hum!: GainNode;
   private drone!: GainNode;
@@ -62,7 +66,7 @@ export class GameAudio {
     this.ctx = ctx;
 
     this.master = ctx.createGain();
-    this.master.gain.value = 0.9;
+    this.master.gain.value = this.masterVolume;
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -18;
     comp.knee.value = 18;
@@ -106,6 +110,15 @@ export class GameAudio {
   setEffectsVolume(v: number) {
     this.effectsVolume = Math.max(0, Math.min(1, v));
     if (this.ctx && this.sfx) this.sfx.gain.setTargetAtTime(this.effectsVolume, this.ctx.currentTime, 0.05);
+  }
+
+  /** 0..1 — overall output, applied after the music/sfx mix. Note: death()
+   * also ramps this same gain node to 0 as a one-shot outro effect; that
+   * ramp always starts from whatever this node's CURRENT value is, so it
+   * stays correct regardless of the user's chosen master level. */
+  setMasterVolume(v: number) {
+    this.masterVolume = Math.max(0, Math.min(1, v));
+    if (this.ctx && this.master) this.master.gain.setTargetAtTime(this.masterVolume, this.ctx.currentTime, 0.05);
   }
 
   async resume() {

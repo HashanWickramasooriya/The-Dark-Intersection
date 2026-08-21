@@ -8,7 +8,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import type { Engine, EngineCallbacks, GameState, HudState, MinimapState } from "./engine/Engine";
 import Minimap from "./Minimap";
@@ -17,6 +16,8 @@ import { setPendingRoom } from "./net/pendingRoom";
 import { LANGUAGES } from "./i18n/translations";
 import { useLanguage } from "./i18n/LanguageContext";
 import { useSoundSettings } from "./settings/SoundSettingsContext";
+import { SoundPanel } from "./ui/SoundPanel";
+import { ControlsPanel, useMediaQuery } from "./ui/ControlsPanel";
 
 const GameCanvas = dynamic(() => import("./GameCanvas"), { ssr: false });
 
@@ -35,8 +36,9 @@ const INITIAL_HUD: HudState = {
 
 export default function GameShell() {
   const { lang, setLang, t } = useLanguage();
-  const { musicVolume, effectsVolume, setMusicVolume, setEffectsVolume } = useSoundSettings();
+  const { musicVolume, effectsVolume, masterVolume } = useSoundSettings();
   const [showSound, setShowSound] = useState(false);
+  const [showControls, setShowControls] = useState(false);
   const engineRef = useRef<Engine | null>(null);
   const autoStartRef = useRef(false);
   const [runId, setRunId] = useState(0);
@@ -192,6 +194,7 @@ export default function GameShell() {
     setBanner(null);
     setShowCredits(false);
     setShowSound(false);
+    setShowControls(false);
     bannerKindRef.current = ""; // next run re-announces the objective
     if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
     engineRef.current = null;
@@ -215,6 +218,7 @@ export default function GameShell() {
         lang={lang}
         musicVolume={musicVolume}
         effectsVolume={effectsVolume}
+        masterVolume={masterVolume}
       />
 
       {/* dev/cheat toast — sits above everything */}
@@ -361,18 +365,22 @@ export default function GameShell() {
             </>
           ) : showSound ? (
             <>
-              <h2 className="vhs-title font-sinhala text-3xl tracking-[0.15em] text-amber-50/90">
-                {t("sound.title")}
-              </h2>
-              <div className="mt-8 flex w-full max-w-xs flex-col gap-6">
-                <VolumeSlider label={t("sound.music")} value={musicVolume} onChange={setMusicVolume} />
-                <VolumeSlider label={t("sound.effects")} value={effectsVolume} onChange={setEffectsVolume} />
-              </div>
+              <SoundPanel />
               <ArmedButton
                 onClick={() => setShowSound(false)}
                 className="font-sinhala mt-10 border border-amber-100/30 px-10 py-2.5 text-sm tracking-[0.2em] text-amber-100/70 transition-all hover:border-amber-100/80 hover:bg-amber-100/5"
               >
                 {t("sound.back")}
+              </ArmedButton>
+            </>
+          ) : showControls ? (
+            <>
+              <ControlsPanel />
+              <ArmedButton
+                onClick={() => setShowControls(false)}
+                className="font-sinhala mt-10 border border-amber-100/30 px-10 py-2.5 text-sm tracking-[0.2em] text-amber-100/70 transition-all hover:border-amber-100/80 hover:bg-amber-100/5"
+              >
+                {t("controls.back")}
               </ArmedButton>
             </>
           ) : (
@@ -456,6 +464,12 @@ export default function GameShell() {
                     {t("menu.sound")}
                   </button>
                   <button
+                    onClick={() => setShowControls(true)}
+                    className="font-sinhala border border-amber-100/15 px-8 py-3 text-sm tracking-widest text-amber-100/50 transition-all hover:border-amber-100/60 hover:bg-amber-100/5 hover:text-amber-100/90"
+                  >
+                    {t("menu.controlsBtn")}
+                  </button>
+                  <button
                     onClick={() => setShowCredits(true)}
                     className="font-sinhala border border-amber-100/15 px-8 py-3 text-sm tracking-widest text-amber-100/50 transition-all hover:border-amber-100/60 hover:bg-amber-100/5 hover:text-amber-100/90"
                   >
@@ -532,18 +546,22 @@ export default function GameShell() {
         <Overlay>
           {showSound ? (
             <>
-              <h2 className="vhs-title font-sinhala text-3xl tracking-[0.15em] text-amber-50/90">
-                {t("sound.title")}
-              </h2>
-              <div className="mt-8 flex w-full max-w-xs flex-col gap-6">
-                <VolumeSlider label={t("sound.music")} value={musicVolume} onChange={setMusicVolume} />
-                <VolumeSlider label={t("sound.effects")} value={effectsVolume} onChange={setEffectsVolume} />
-              </div>
+              <SoundPanel />
               <ArmedButton
                 onClick={() => setShowSound(false)}
                 className="font-sinhala mt-10 border border-amber-100/30 px-10 py-2.5 text-sm tracking-[0.2em] text-amber-100/70 transition-all hover:border-amber-100/80 hover:bg-amber-100/5"
               >
                 {t("sound.back")}
+              </ArmedButton>
+            </>
+          ) : showControls ? (
+            <>
+              <ControlsPanel />
+              <ArmedButton
+                onClick={() => setShowControls(false)}
+                className="font-sinhala mt-10 border border-amber-100/30 px-10 py-2.5 text-sm tracking-[0.2em] text-amber-100/70 transition-all hover:border-amber-100/80 hover:bg-amber-100/5"
+              >
+                {t("controls.back")}
               </ArmedButton>
             </>
           ) : (
@@ -566,6 +584,12 @@ export default function GameShell() {
                 className="font-sinhala mt-4 border border-amber-100/15 px-10 py-2.5 text-sm tracking-[0.2em] text-amber-100/50 transition-all hover:border-amber-100/60 hover:bg-amber-100/5 hover:text-amber-100/90 disabled:opacity-50"
               >
                 {t("menu.sound")}
+              </ArmedButton>
+              <ArmedButton
+                onClick={() => setShowControls(true)}
+                className="font-sinhala mt-4 border border-amber-100/15 px-10 py-2.5 text-sm tracking-[0.2em] text-amber-100/50 transition-all hover:border-amber-100/60 hover:bg-amber-100/5 hover:text-amber-100/90 disabled:opacity-50"
+              >
+                {t("menu.controlsBtn")}
               </ArmedButton>
               <ArmedButton
                 onClick={exitToMenu}
@@ -620,42 +644,8 @@ export default function GameShell() {
           >
             {t("won.retry")}
           </ArmedButton>
-          <GitHubBadge className="mt-8" label={t("won.starPrompt")} />
         </Overlay>
       )}
-    </div>
-  );
-}
-
-/** A single labeled volume row — range input + live percentage readout,
- * styled to match the existing menu's amber/black look rather than a
- * default browser slider. */
-function VolumeSlider({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  const pct = Math.round(value * 100);
-  return (
-    <div className="font-sinhala flex flex-col gap-2">
-      <div className="flex items-center justify-between text-[12px] tracking-widest text-amber-100/60">
-        <span>{label}</span>
-        <span className="text-amber-100/90">{pct}%</span>
-      </div>
-      <input
-        type="range"
-        min={0}
-        max={100}
-        step={1}
-        value={pct}
-        onChange={(e) => onChange(Number(e.target.value) / 100)}
-        aria-label={label}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-amber-100/15 accent-amber-100 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-amber-100 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-amber-100"
-      />
     </div>
   );
 }
@@ -685,32 +675,6 @@ function ArmedButton({
     <button onClick={onClick} disabled={!armed || disabled} className={className}>
       {children}
     </button>
-  );
-}
-
-function GitHubBadge({
-  className = "",
-  label = "Hashanwickramasooriya/Backroom-Escape",
-}: {
-  className?: string;
-  label?: string;
-}) {
-  return (
-    <a
-      href="https://github.com/Hashanwickramasooriya/Backroom-Escape"
-      target="_blank"
-      rel="noopener noreferrer"
-      className={`font-sinhala group flex items-center gap-2 text-[11px] tracking-widest text-amber-100/30 transition-all hover:text-amber-100/80 hover:[text-shadow:0_0_14px_rgba(255,220,140,0.4)] ${className}`}
-    >
-      <svg
-        viewBox="0 0 16 16"
-        aria-hidden="true"
-        className="h-4 w-4 fill-current opacity-70 transition-opacity group-hover:opacity-100"
-      >
-        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
-      </svg>
-      {label}
-    </a>
   );
 }
 
@@ -834,18 +798,6 @@ function TouchControls({
         ❚❚
       </button>
     </div>
-  );
-}
-
-function useMediaQuery(query: string) {
-  return useSyncExternalStore(
-    (onChange) => {
-      const mq = window.matchMedia(query);
-      mq.addEventListener("change", onChange);
-      return () => mq.removeEventListener("change", onChange);
-    },
-    () => window.matchMedia(query).matches,
-    () => false, // SSR: assume desktop, corrected on hydration
   );
 }
 

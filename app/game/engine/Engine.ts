@@ -177,6 +177,7 @@ export class Engine {
     private lang: Language,
     musicVolume: number,
     effectsVolume: number,
+    masterVolume: number,
     private net?: EngineNetContext,
   ) {
     // Applied before audio.init() is ever called (that only happens once
@@ -184,6 +185,7 @@ export class Engine {
     // no silent-then-jump-to-volume moment.
     this.audio.musicVolume = musicVolume;
     this.audio.effectsVolume = effectsVolume;
+    this.audio.masterVolume = masterVolume;
 
     const seed = net?.seed ?? (Date.now() ^ (Math.random() * 0xffffff)) >>> 0;
     const width = container.clientWidth;
@@ -490,6 +492,9 @@ export class Engine {
   }
   setEffectsVolume(v: number) {
     this.audio.setEffectsVolume(v);
+  }
+  setMasterVolume(v: number) {
+    this.audio.setMasterVolume(v);
   }
 
   /* ------------------------------ cheats ------------------------------ */

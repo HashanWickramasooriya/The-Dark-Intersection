@@ -12,11 +12,12 @@ interface Props {
    * and live-updated afterward if they change while this Engine is alive. */
   musicVolume: number;
   effectsVolume: number;
+  masterVolume: number;
   /** present only for multiplayer runs — single-player passes nothing */
   net?: EngineNetContext;
 }
 
-export default function GameCanvas({ callbacksRef, onReady, lang, musicVolume, effectsVolume, net }: Props) {
+export default function GameCanvas({ callbacksRef, onReady, lang, musicVolume, effectsVolume, masterVolume, net }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
@@ -37,7 +38,7 @@ export default function GameCanvas({ callbacksRef, onReady, lang, musicVolume, e
         onStats: (s) => callbacksRef.current?.onStats(s),
         onToast: (m) => callbacksRef.current?.onToast(m),
         onGameOver: (w) => callbacksRef.current?.onGameOver?.(w),
-      }, lang, musicVolume, effectsVolume, net);
+      }, lang, musicVolume, effectsVolume, masterVolume, net);
       engineRef.current = engine;
       if (process.env.NODE_ENV !== "production") {
         (window as unknown as Record<string, unknown>).__backrooms = engine;
@@ -61,6 +62,9 @@ export default function GameCanvas({ callbacksRef, onReady, lang, musicVolume, e
   useEffect(() => {
     engineRef.current?.setEffectsVolume(effectsVolume);
   }, [effectsVolume]);
+  useEffect(() => {
+    engineRef.current?.setMasterVolume(masterVolume);
+  }, [masterVolume]);
 
   return (
     <div ref={containerRef} className="absolute inset-0">

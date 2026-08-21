@@ -10,6 +10,8 @@ import { takePendingRoom } from "../../game/net/pendingRoom";
 import type { PlayerInfo, ServerMessage } from "../../game/net/protocol";
 import { useLanguage } from "../../game/i18n/LanguageContext";
 import { useSoundSettings } from "../../game/settings/SoundSettingsContext";
+import { SoundPanel } from "../../game/ui/SoundPanel";
+import { ControlsPanel } from "../../game/ui/ControlsPanel";
 
 const GameCanvas = dynamic(() => import("../../game/GameCanvas"), { ssr: false });
 
@@ -31,7 +33,8 @@ type Phase = "name_entry" | "connecting" | "join_error" | "lobby" | "playing";
 export default function MultiplayerRoom({ roomId }: { roomId: string }) {
   const router = useRouter();
   const { lang, t } = useLanguage();
-  const { musicVolume, effectsVolume } = useSoundSettings();
+  const { musicVolume, effectsVolume, masterVolume } = useSoundSettings();
+  const [lobbyPanel, setLobbyPanel] = useState<"main" | "sound" | "controls">("main");
   const clientRef = useRef<RoomClient | null>(null);
   const engineRef = useRef<Engine | null>(null);
 
@@ -322,6 +325,19 @@ export default function MultiplayerRoom({ roomId }: { roomId: string }) {
   }
 
   if (phase === "lobby") {
+    if (lobbyPanel !== "main") {
+      return (
+        <Screen>
+          {lobbyPanel === "sound" ? <SoundPanel /> : <ControlsPanel />}
+          <button
+            onClick={() => setLobbyPanel("main")}
+            className="font-sinhala mt-10 border border-amber-100/30 px-10 py-2.5 text-sm tracking-[0.2em] text-amber-100/70 transition-all hover:border-amber-100/80 hover:bg-amber-100/5"
+          >
+            {t(lobbyPanel === "sound" ? "sound.back" : "controls.back")}
+          </button>
+        </Screen>
+      );
+    }
     return (
       <Screen>
         <div className="flicker-slow font-sinhala text-[11px] tracking-[0.3em] text-amber-200/40">
@@ -384,6 +400,21 @@ export default function MultiplayerRoom({ roomId }: { roomId: string }) {
           </p>
         )}
 
+        <div className="mt-5 flex items-center gap-4">
+          <button
+            onClick={() => setLobbyPanel("sound")}
+            className="font-sinhala border border-amber-100/15 px-6 py-2 text-[12px] tracking-widest text-amber-100/50 transition-all hover:border-amber-100/60 hover:bg-amber-100/5 hover:text-amber-100/90"
+          >
+            {t("menu.sound")}
+          </button>
+          <button
+            onClick={() => setLobbyPanel("controls")}
+            className="font-sinhala border border-amber-100/15 px-6 py-2 text-[12px] tracking-widest text-amber-100/50 transition-all hover:border-amber-100/60 hover:bg-amber-100/5 hover:text-amber-100/90"
+          >
+            {t("menu.controlsBtn")}
+          </button>
+        </div>
+
         <button
           onClick={leaveRoom}
           className="font-sinhala mt-6 text-[12px] tracking-widest text-amber-100/40 hover:text-red-200/80"
@@ -404,6 +435,7 @@ export default function MultiplayerRoom({ roomId }: { roomId: string }) {
           lang={lang}
           musicVolume={musicVolume}
           effectsVolume={effectsVolume}
+          masterVolume={masterVolume}
           net={net}
         />
       )}
